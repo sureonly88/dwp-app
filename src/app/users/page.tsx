@@ -6,6 +6,7 @@ import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import UserModal, { type UserFormData } from "@/components/users/UserModal";
+import { FetchErrorBox } from "@/components/ui/FetchError";
 
 interface User {
   id: number;
@@ -45,6 +46,7 @@ function formatDate(dateStr: string | null) {
 export default function UsersPage() {
   const [data, setData] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<null | "add" | "edit">(null);
   const [editTarget, setEditTarget] = useState<(UserFormData & { id: number }) | null>(null);
@@ -59,12 +61,14 @@ export default function UsersPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setFetchError(false);
     try {
       const res = await fetch(`/api/users?search=${encodeURIComponent(search)}`);
       if (res.status === 403) { window.location.href = "/unauthorized"; return; }
       const json = await res.json();
       setData(json.data ?? []);
     } catch {
+      setFetchError(true);
       showToast("Gagal memuat data", "error");
     } finally {
       setLoading(false);
@@ -217,6 +221,8 @@ export default function UsersPage() {
               <span className="material-symbols-outlined text-[20px] animate-spin">progress_activity</span>
               <span className="text-sm">Memuat data...</span>
             </div>
+          ) : fetchError ? (
+            <FetchErrorBox message="Gagal memuat data user. Periksa koneksi dan coba lagi." onRetry={fetchData} />
           ) : filteredLocal.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-on-surface-variant">
               <span className="material-symbols-outlined text-[40px] mb-2">manage_accounts</span>

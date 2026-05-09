@@ -86,7 +86,7 @@ export async function POST(
     let pdfBuffer: Buffer;
     try {
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0" });
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
       const pdfRaw = await page.pdf({
         format: "A4",
         printBackground: true,
@@ -100,7 +100,7 @@ export async function POST(
     const safeJudul = (kegiatan.judul as string).replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "-").toLowerCase();
     const filename = `undangan-${safeJudul}.pdf`;
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

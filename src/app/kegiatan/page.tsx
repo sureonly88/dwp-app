@@ -8,6 +8,7 @@ import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import KegiatanModal, { type KegiatanFormData } from "@/components/kegiatan/KegiatanModal";
 import DeleteConfirm from "@/components/keanggotaan/DeleteConfirm";
+import { FetchErrorRow } from "@/components/ui/FetchError";
 
 interface Kegiatan {
   id: number;
@@ -58,6 +59,7 @@ export default function KegiatanPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -92,6 +94,7 @@ export default function KegiatanPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setFetchError(false);
     try {
       const params = new URLSearchParams({
         search,
@@ -105,6 +108,7 @@ export default function KegiatanPage() {
       setData(json.data);
       setTotal(json.total);
     } catch {
+      setFetchError(true);
       showToast("Gagal memuat data kegiatan", "error");
     } finally {
       setLoading(false);
@@ -342,6 +346,8 @@ export default function KegiatanPage() {
                       ))}
                     </tr>
                   ))
+                ) : fetchError ? (
+                  <FetchErrorRow colSpan={7} message="Gagal memuat data kegiatan. Periksa koneksi dan coba lagi." onRetry={fetchData} />
                 ) : data.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-16 text-center text-on-surface-variant text-body-sm">

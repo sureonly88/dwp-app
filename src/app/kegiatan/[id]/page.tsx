@@ -116,7 +116,12 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     setTimeout(() => setToast(null), 3000);
   };
 
-  const presensiRefreshRef = useRef<NodeJS.Timeout | null>(null);
+  const [sseConnected, setSseConnected] = useState(false);
+  const [highlightedIds, setHighlightedIds] = useState<Set<number>>(new Set());
+
+  // Tracks IDs already in state — used by SSE handler to deduplicate rows
+  // that were already fetched by fetchPresensi() after a manual add.
+  const seenPresensiIdsRef = useRef<Set<number>>(new Set());
 
   const fetchKegiatan = useCallback(async () => {
     try {
@@ -134,6 +139,8 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
       if (res.ok) {
         const json = await res.json();
         setPresensi(json.data);
+        // Keep ref in sync so SSE won't re-add rows already loaded by this fetch
+        seenPresensiIdsRef.current = new Set((json.data as PresensiItem[]).map((p) => p.id));
       }
     } catch {
       // silent
@@ -192,21 +199,74 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     fetchPresensi();
   }, [fetchPresensi]);
 
-  // Auto-refresh presensi list every 5s when status Berlangsung
+  // Real-time presensi/tamu updates via Server-Sent Events
   useEffect(() => {
-    if (kegiatan?.status !== "Berlangsung") {
-      if (presensiRefreshRef.current) clearInterval(presensiRefreshRef.current);
-      return;
-    }
-    presensiRefreshRef.current = setInterval(() => {
-      fetchPresensi();
-      fetchKegiatan();
-      fetchTamu();
-    }, 5000);
-    return () => {
-      if (presensiRefreshRef.current) clearInterval(presensiRefreshRef.current);
+    const es = new EventSource(`/api/kegiatan/${id}/presensi/stream`);
+
+    es.onopen = () => setSseConnected(true);
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "presensi" && Array.isArray(data.rows)) {
+          const incoming: PresensiItem[] = (data.rows as PresensiItem[]).slice().reverse();
+          // Deduplicate: skip rows already in state from a concurrent fetchPresensi() call
+          const trulyNew = incoming.filter((r) => !seenPresensiIdsRef.current.has(r.id));
+          if (trulyNew.length > 0) {
+            trulyNew.forEach((r) => seenPresensiIdsRef.current.add(r.id));
+            const newIds = trulyNew.map((r) => r.id);
+
+            setPresensi((prev) => [...trulyNew, ...prev]);
+            setKegiatan((prev) =>
+              prev ? { ...prev, hadir_count: prev.hadir_count + trulyNew.length } : prev
+            );
+
+            // Flash-highlight new rows for 3 s
+            setHighlightedIds((prev) => {
+              const next = new Set([...prev, ...newIds]);
+              setTimeout(() => {
+                setHighlightedIds((cur) => {
+                  const cleaned = new Set(cur);
+                  newIds.forEach((rid) => cleaned.delete(rid));
+                  return cleaned;
+                });
+              }, 3000);
+              return next;
+            });
+          }
+        }
+
+        if (data.type === "tamu" && Array.isArray(data.rows)) {
+          setTamu(data.rows as TamuItem[]);
+          setKegiatan((prev) =>
+            prev ? { ...prev, tamu_count: (data.rows as TamuItem[]).length } : prev
+          );
+        }
+
+        if (data.type === "deleted" && Array.isArray(data.ids)) {
+          const deletedSet = new Set<number>(data.ids as number[]);
+          // Remove deleted IDs from ref so they can be re-added if re-inserted later
+          (data.ids as number[]).forEach((rid) => seenPresensiIdsRef.current.delete(rid));
+          setPresensi((prev) => prev.filter((p) => !deletedSet.has(p.id)));
+          setKegiatan((prev) =>
+            prev
+              ? { ...prev, hadir_count: Math.max(0, prev.hadir_count - (data.ids as number[]).length) }
+              : prev
+          );
+        }
+      } catch {
+        // ignore parse errors
+      }
     };
-  }, [kegiatan?.status, fetchPresensi, fetchKegiatan]);
+
+    es.onerror = () => setSseConnected(false);
+
+    return () => {
+      es.close();
+      setSseConnected(false);
+    };
+  }, [id]);
 
   // Anggota search suggestions for manual add
   useEffect(() => {
@@ -662,10 +722,15 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
               <div className="p-6 border-b border-outline-variant flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <h3 className="font-h3 text-h3 text-on-surface">Daftar Hadir</h3>
-                  {kegiatan.status === "Berlangsung" && (
+                  {sseConnected ? (
                     <span className="inline-flex items-center gap-1.5 text-label-sm text-tertiary">
                       <span className="flex h-2 w-2 rounded-full bg-tertiary animate-pulse" />
                       Live
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-label-sm text-on-surface-variant/60">
+                      <span className="flex h-2 w-2 rounded-full bg-outline-variant" />
+                      Menghubungkan...
                     </span>
                   )}
                 </div>
@@ -764,7 +829,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                       </tr>
                     ) : (
                       presensiFiltered.map((p, i) => (
-                          <tr key={p.id} className={`transition-colors ${selectedIds.has(p.id) ? "bg-primary-fixed/30" : "hover:bg-surface-container-low/50"}`}>
+                          <tr key={p.id} className={`transition-colors duration-700 ${selectedIds.has(p.id) ? "bg-primary-fixed/30" : highlightedIds.has(p.id) ? "bg-tertiary-container/40" : "hover:bg-surface-container-low/50"}`}>
                             <td className="px-4 py-3 w-10">
                               <input
                                 type="checkbox"

@@ -71,7 +71,10 @@ run_sql "$SCRIPTS_DIR/migrate-presensi-tamu.sql"
 # 7. Foto presensi tamu
 run_sql "$SCRIPTS_DIR/migrate-presensi-tamu-foto.sql"
 
-# 8. Seed data awal (idempotent)
+# 8. Sistem Kas (cash management)
+run_sql "$SCRIPTS_DIR/setup-kas.sql"
+
+# 9. Seed data awal (idempotent)
 run_sql "$SCRIPTS_DIR/seed.sql"
 
 echo "[migrate] ✓ Semua migration berhasil dijalankan."

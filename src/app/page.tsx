@@ -5,6 +5,7 @@ import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
+import { FetchErrorBox } from "@/components/ui/FetchError";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface DashboardStats {
@@ -143,13 +144,19 @@ function SimpleBarChart({ data }: { data: KegiatanHistory[] }) {
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
-  useEffect(() => {
+  const loadDashboard = () => {
+    setFetchError(false);
+    setLoading(true);
     fetch("/api/dashboard")
       .then((r) => r.json())
       .then((d) => setData(d))
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadDashboard(); }, []);
 
   const now = new Date();
   const greetHour = now.getHours();
@@ -180,6 +187,10 @@ export default function DashboardPage() {
             Tambah Kegiatan
           </Link>
         </header>
+
+        {fetchError && (
+          <FetchErrorBox message="Gagal memuat data dashboard. Periksa koneksi dan coba lagi." onRetry={loadDashboard} />
+        )}
 
         {/* Summary Stats (4 cards) */}
         <section>

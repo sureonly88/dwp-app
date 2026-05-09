@@ -8,6 +8,7 @@ import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import AnggotaModal, { type AnggotaFormData } from "@/components/keanggotaan/AnggotaModal";
 import DeleteConfirm from "@/components/keanggotaan/DeleteConfirm";
+import { FetchErrorRow } from "@/components/ui/FetchError";
 
 interface Anggota {
   id: number;
@@ -75,6 +76,7 @@ export default function KeanggotaanPage() {
   const [deleteTarget, setDeleteTarget] = useState<Anggota | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  const [fetchError, setFetchError] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   const showToast = (msg: string, type: "success" | "error" = "success") => {
@@ -84,6 +86,7 @@ export default function KeanggotaanPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setFetchError(false);
     try {
       const params = new URLSearchParams({
         search,
@@ -97,6 +100,7 @@ export default function KeanggotaanPage() {
       setData(json.data);
       setTotal(json.total);
     } catch {
+      setFetchError(true);
       showToast("Gagal memuat data anggota", "error");
     } finally {
       setLoading(false);
@@ -336,6 +340,8 @@ export default function KeanggotaanPage() {
                       ))}
                     </tr>
                   ))
+                ) : fetchError ? (
+                  <FetchErrorRow colSpan={7} message="Gagal memuat data anggota. Periksa koneksi dan coba lagi." onRetry={fetchData} />
                 ) : data.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-16 text-center text-on-surface-variant text-body-sm">
