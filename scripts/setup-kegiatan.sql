@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS kegiatan (
   INDEX idx_kegiatan_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Tambah kolom unit_kerja_bertugas jika belum ada (idempotent untuk DB lama)
+ALTER TABLE kegiatan
+  ADD COLUMN IF NOT EXISTS unit_kerja_bertugas VARCHAR(100) NULL AFTER target_peserta;
+
 -- Tabel presensi (kehadiran)
 CREATE TABLE IF NOT EXISTS presensi (
   id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,

@@ -22,6 +22,13 @@ CREATE TABLE IF NOT EXISTS arisan_winners (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Daftar hadiah doorprize per kegiatan
+CREATE TABLE IF NOT EXISTS doorprize_setup (
+  kegiatan_id INT NOT NULL,
+  jumlah_hadiah INT NOT NULL DEFAULT 1,
+  PRIMARY KEY (kegiatan_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Detail hadiah doorprize per kegiatan
 CREATE TABLE IF NOT EXISTS doorprize_hadiah (
   id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   kegiatan_id INT UNSIGNED NOT NULL,
