@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS kegiatan (
   status ENUM('Mendatang','Berlangsung','Selesai','Dibatalkan') NOT NULL DEFAULT 'Mendatang',
   event_code VARCHAR(20) NOT NULL UNIQUE,
   target_peserta INT UNSIGNED NULL,
+  unit_kerja_bertugas VARCHAR(100) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_kegiatan_tanggal (tanggal),

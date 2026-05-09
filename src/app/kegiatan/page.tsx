@@ -24,6 +24,7 @@ interface Kegiatan {
   target_peserta: number | null;
   hadir_count: number;
   tamu_count: number;
+  unit_kerja_bertugas: string | null;
 }
 
 interface ApiResponse {
@@ -147,6 +148,7 @@ export default function KegiatanPage() {
       lokasi: k.lokasi ?? "",
       kategori: k.kategori,
       status: k.status,
+      unit_kerja_bertugas: k.unit_kerja_bertugas ?? "",
     });
     setModal("edit");
   };

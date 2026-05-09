@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
       kategori,
       status,
       target_peserta,
+      unit_kerja_bertugas,
     } = body;
 
     if (!judul || !tanggal) {
@@ -132,8 +133,8 @@ export async function POST(req: NextRequest) {
 
     const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO kegiatan
-        (judul, deskripsi, tanggal, waktu_mulai, waktu_selesai, lokasi, kategori, status, event_code, target_peserta)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (judul, deskripsi, tanggal, waktu_mulai, waktu_selesai, lokasi, kategori, status, event_code, target_peserta, unit_kerja_bertugas)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         judul,
         deskripsi ?? null,
@@ -145,6 +146,7 @@ export async function POST(req: NextRequest) {
         computeKegiatanStatus(tanggal, waktu_mulai || null, waktu_selesai || null, status ?? "Mendatang"),
         eventCode,
         target_peserta ?? null,
+        unit_kerja_bertugas ?? null,
       ]
     );
 

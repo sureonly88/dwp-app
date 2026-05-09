@@ -47,6 +47,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       kategori,
       status,
       target_peserta,
+      unit_kerja_bertugas,
     } = body;
 
     if (!judul || !tanggal) {
@@ -56,7 +57,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const [result] = await pool.execute<ResultSetHeader>(
       `UPDATE kegiatan SET
         judul=?, deskripsi=?, tanggal=?, waktu_mulai=?, waktu_selesai=?,
-        lokasi=?, kategori=?, status=?, target_peserta=?
+        lokasi=?, kategori=?, status=?, target_peserta=?, unit_kerja_bertugas=?
        WHERE id=?`,
       [
         judul,
@@ -68,6 +69,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         kategori ?? "Rapat",
         computeKegiatanStatus(tanggal, waktu_mulai || null, waktu_selesai || null, status ?? "Mendatang"),
         target_peserta ?? null,
+        unit_kerja_bertugas ?? null,
         id,
       ]
     );

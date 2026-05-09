@@ -11,6 +11,7 @@ export interface KegiatanFormData {
   lokasi: string;
   kategori: string;
   status: string;
+  unit_kerja_bertugas: string;
 }
 
 interface Props {
@@ -32,6 +33,7 @@ const EMPTY_FORM: KegiatanFormData = {
   lokasi: "",
   kategori: "Rapat",
   status: "Mendatang",
+  unit_kerja_bertugas: "",
 };
 
 export default function KegiatanModal({ mode, initialData, onClose, onSuccess }: Props) {
@@ -178,6 +180,16 @@ export default function KegiatanModal({ mode, initialData, onClose, onSuccess }:
                 </select>
               </Field>
             </div>
+
+            <Field label="Unit Kerja Bertugas">
+              <input
+                name="unit_kerja_bertugas"
+                value={form.unit_kerja_bertugas}
+                onChange={handleChange}
+                placeholder="Departemen Pelayanan (opsional, tampil di undangan)"
+                className="w-full border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface"
+              />
+            </Field>
 
             {/* Batalkan toggle */}
             <label className="flex items-center gap-3 p-3.5 border border-outline-variant rounded-xl cursor-pointer hover:bg-surface-container-low transition-colors select-none">

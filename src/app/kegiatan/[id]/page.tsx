@@ -20,6 +20,7 @@ interface Kegiatan {
   target_peserta: number | null;
   hadir_count: number;
   tamu_count: number;
+  unit_kerja_bertugas: string | null;
 }
 
 interface PresensiItem {
@@ -95,8 +96,12 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     penandatangan: "",
     jabatan_ttd: "Ketua",
     nip_ttd: "",
-    kota: "Jakarta",
-    catatan: "",
+    kota: "Banjarmasin",
+    sub_org: "PT. AIR MINUM BANDARMASIH (PERSERODA)",
+    alamat_org: "Jalan A. Yani Km 2,5 No 12 Banjarmasin",
+    dress_code: "",
+    zona_waktu: "Wita",
+    kepada: "Pengurus & Anggota DWP",
   });
 
   const [manualQuery, setManualQuery] = useState("");
@@ -1102,16 +1107,69 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
               </button>
             </div>
             <div className="p-6 flex flex-col gap-4 overflow-y-auto">
+
+              {/* Kop surat */}
+              <p className="text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold">Kop Surat</p>
               <div className="flex flex-col gap-1.5">
-                <label className="text-label-md font-semibold text-on-surface">Nomor Surat</label>
+                <label className="text-label-md font-semibold text-on-surface">Organisasi / Unit Kerja</label>
                 <input
                   type="text"
-                  value={undForm.nomor}
-                  onChange={(e) => setUndForm({ ...undForm, nomor: e.target.value })}
-                  placeholder="001/DWP/V/2026"
+                  value={undForm.sub_org}
+                  onChange={(e) => setUndForm({ ...undForm, sub_org: e.target.value })}
+                  placeholder="PT.AIR MINUM BANDARMASIH (PERSERODA) (opsional)"
                   className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
                 />
               </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md font-semibold text-on-surface">Alamat</label>
+                <input
+                  type="text"
+                  value={undForm.alamat_org}
+                  onChange={(e) => setUndForm({ ...undForm, alamat_org: e.target.value })}
+                  placeholder="Jalan A. Yani Km2,5 No.12 Banjarmasin (opsional)"
+                  className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                />
+              </div>
+
+              {/* Penerima */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md font-semibold text-on-surface">Kepada (Penerima)</label>
+                <input
+                  type="text"
+                  value={undForm.kepada}
+                  onChange={(e) => setUndForm({ ...undForm, kepada: e.target.value })}
+                  placeholder="Pengurus & Anggota DWP"
+                  className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                />
+              </div>
+
+              {/* Waktu */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md font-semibold text-on-surface">Zona Waktu</label>
+                <select
+                  value={undForm.zona_waktu}
+                  onChange={(e) => setUndForm({ ...undForm, zona_waktu: e.target.value })}
+                  style={{ paddingTop: '10px', paddingBottom: '10px' }}
+                  className="appearance-none border border-outline-variant rounded-lg px-4 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                >
+                  {["WIB", "Wita", "WIT"].map((z) => <option key={z}>{z}</option>)}
+                </select>
+              </div>
+
+              {/* Dress Code */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md font-semibold text-on-surface">Dress Code <span className="font-normal text-on-surface-variant">(opsional)</span></label>
+                <input
+                  type="text"
+                  value={undForm.dress_code}
+                  onChange={(e) => setUndForm({ ...undForm, dress_code: e.target.value })}
+                  placeholder="Baju Seragam Dharma Wanita"
+                  className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                />
+              </div>
+
+              {/* Penandatangan */}
+              <p className="text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold mt-1">Penandatangan</p>
               <div className="flex flex-col gap-1.5">
                 <label className="text-label-md font-semibold text-on-surface">Nama Penandatangan <span className="text-error">*</span></label>
                 <input
@@ -1129,42 +1187,41 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                     type="text"
                     value={undForm.jabatan_ttd}
                     onChange={(e) => setUndForm({ ...undForm, jabatan_ttd: e.target.value })}
+                    placeholder="Plh. Ketua"
                     className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-label-md font-semibold text-on-surface">NIP Penandatangan</label>
+                  <label className="text-label-md font-semibold text-on-surface">Kota (TTD)</label>
                   <input
                     type="text"
-                    value={undForm.nip_ttd}
-                    onChange={(e) => setUndForm({ ...undForm, nip_ttd: e.target.value })}
-                    placeholder="(opsional)"
+                    value={undForm.kota}
+                    onChange={(e) => setUndForm({ ...undForm, kota: e.target.value })}
                     className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
                   />
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-label-md font-semibold text-on-surface">Kota</label>
+                <label className="text-label-md font-semibold text-on-surface">Nomor Surat <span className="font-normal text-on-surface-variant">(opsional)</span></label>
                 <input
                   type="text"
-                  value={undForm.kota}
-                  onChange={(e) => setUndForm({ ...undForm, kota: e.target.value })}
+                  value={undForm.nomor}
+                  onChange={(e) => setUndForm({ ...undForm, nomor: e.target.value })}
+                  placeholder="001/DWP/V/2026"
                   className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
                 />
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-label-md font-semibold text-on-surface">Catatan Tambahan</label>
-                <textarea
-                  rows={3}
-                  value={undForm.catatan}
-                  onChange={(e) => setUndForm({ ...undForm, catatan: e.target.value })}
-                  placeholder="Paragraf tambahan sebelum kalimat penutup (opsional)"
-                  className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface resize-none"
-                />
-              </div>
+
+              {kegiatan?.unit_kerja_bertugas && (
+                <div className="p-3 bg-tertiary-container/30 rounded-lg text-body-sm text-on-surface flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[16px] mt-0.5 shrink-0 text-tertiary">assignment_ind</span>
+                  <span>Unit Kerja Bertugas: <strong>{kegiatan.unit_kerja_bertugas}</strong> akan tampil di bagian bawah undangan.</span>
+                </div>
+              )}
+
               <div className="p-3 bg-surface-container rounded-lg text-body-sm text-on-surface-variant flex items-start gap-2">
                 <span className="material-symbols-outlined text-[16px] mt-0.5 shrink-0">info</span>
-                <span>Klik <strong>Unduh PDF</strong> untuk mengunduh file PDF surat undangan langsung ke perangkat Anda.</span>
+                <span>Klik <strong>Unduh PDF</strong> untuk mengunduh file PDF surat undangan.</span>
               </div>
             </div>
             <div className="p-6 border-t border-outline-variant flex items-center justify-end gap-3 bg-surface-container">

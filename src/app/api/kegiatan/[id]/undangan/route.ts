@@ -11,11 +11,11 @@ const BULAN_ID = [
 
 function fmtJam(t: string | null) {
   if (!t) return "";
-  return t.slice(0, 5);
+  // Format HH.MM (Indonesian style with period separator)
+  return t.slice(0, 5).replace(":", ".");
 }
 
 // POST /api/kegiatan/[id]/undangan
-// Body: { nomor, penandatangan, jabatan_ttd, nip_ttd, kota, catatan }
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,13 +23,26 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { nomor = "", penandatangan, jabatan_ttd = "Ketua", nip_ttd = "", kota = "Jakarta", catatan = "" } = body as {
+    const {
+      nomor = "",
+      penandatangan,
+      jabatan_ttd = "Ketua",
+      kota = "Banjarmasin",
+      sub_org = "",
+      alamat_org = "",
+      dress_code = "",
+      zona_waktu = "Wita",
+      kepada = "Pengurus & Anggota DWP",
+    } = body as {
       nomor?: string;
       penandatangan: string;
       jabatan_ttd?: string;
-      nip_ttd?: string;
       kota?: string;
-      catatan?: string;
+      sub_org?: string;
+      alamat_org?: string;
+      dress_code?: string;
+      zona_waktu?: string;
+      kepada?: string;
     };
 
     if (!penandatangan?.trim()) {
@@ -47,29 +60,26 @@ export async function POST(
 
     const tgl = new Date(kegiatan.tanggal as string);
     const hariStr = HARI_ID[tgl.getDay()];
-    const tglKegStr = `${hariStr}, ${tgl.getDate()} ${BULAN_ID[tgl.getMonth()]} ${tgl.getFullYear()}`;
+    const tglKegStr = `${hariStr} / ${tgl.getDate()} ${BULAN_ID[tgl.getMonth()]} ${tgl.getFullYear()}`;
     const waktuMulai = fmtJam(kegiatan.waktu_mulai as string | null);
-    const waktuSelesai = fmtJam(kegiatan.waktu_selesai as string | null);
-    const waktuStr = waktuMulai
-      ? `${waktuMulai} WIB${waktuSelesai ? ` s.d. ${waktuSelesai} WIB` : " s.d. selesai"}`
-      : "-";
-    const now = new Date();
-    const tglSurat = `${now.getDate()} ${BULAN_ID[now.getMonth()]} ${now.getFullYear()}`;
 
     const html = buildHtml({
       nomor,
       penandatangan,
       jabatan_ttd,
-      nip_ttd,
       kota,
-      catatan,
+      sub_org,
+      alamat_org,
+      dress_code,
+      zona_waktu,
+      kepada,
       judul: kegiatan.judul as string,
       deskripsi: kegiatan.deskripsi as string | null,
       kategori: kegiatan.kategori as string,
       lokasi: kegiatan.lokasi as string | null,
       tglKegStr,
-      waktuStr,
-      tglSurat,
+      waktuMulai,
+      unit_kerja_bertugas: (kegiatan.unit_kerja_bertugas as string | null) ?? "",
     });
 
     const browser = await puppeteer.launch({
@@ -78,7 +88,7 @@ export async function POST(
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",   // wajib di Docker (shared memory terbatas)
+        "--disable-dev-shm-usage",
         "--disable-gpu",
         "--single-process",
       ],
@@ -118,20 +128,40 @@ function buildHtml(d: {
   nomor: string;
   penandatangan: string;
   jabatan_ttd: string;
-  nip_ttd: string;
   kota: string;
-  catatan: string;
+  sub_org: string;
+  alamat_org: string;
+  dress_code: string;
+  zona_waktu: string;
+  kepada: string;
   judul: string;
   deskripsi: string | null;
   kategori: string;
   lokasi: string | null;
   tglKegStr: string;
-  waktuStr: string;
-  tglSurat: string;
+  waktuMulai: string;
+  unit_kerja_bertugas: string;
 }) {
-  const isi = d.deskripsi
-    ? `pelaksanaan ${d.deskripsi}`
-    : `pelaksanaan kegiatan ${d.kategori} Dharma Wanita Persatuan`;
+  // Build acara rows: split deskripsi by newlines if provided, otherwise use judul
+  const acaraItems = d.deskripsi
+    ? d.deskripsi.split("\n").map((s) => s.trim()).filter(Boolean)
+    : [d.judul];
+
+  const acaraHtml = acaraItems
+    .map((item, i) =>
+      i === 0
+        ? `- &nbsp;${escHtml(item)}`
+        : `<br/><span style="display:inline-block;width:0"></span>- &nbsp;${escHtml(item)}`
+    )
+    .join("");
+
+  const waktuStr = d.waktuMulai
+    ? `Pukul ${d.waktuMulai} ${escHtml(d.zona_waktu)}`
+    : "-";
+
+  const nomorRow = d.nomor
+    ? `<p style="text-align:right;font-size:10pt;margin-bottom:4px;">No. : ${escHtml(d.nomor)}</p>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="id">
@@ -143,18 +173,21 @@ body {
   font-family: 'Times New Roman', Times, serif;
   font-size: 12pt;
   color: #000;
-  line-height: 1.45;
+  line-height: 1.5;
 }
+
+/* ---- KOP ---- */
 .kop {
   display: flex;
   align-items: center;
-  gap: 20px;
-  margin-bottom: 8px;
+  justify-content: center;
+  gap: 18px;
+  padding-bottom: 8px;
 }
 .kop-logo {
-  width: 90px;
-  height: 90px;
-  border: 3px solid #7b0000;
+  width: 82px;
+  height: 82px;
+  border: 3px double #5a4000;
   border-radius: 50%;
   display: flex;
   flex-direction: column;
@@ -163,40 +196,69 @@ body {
   font-size: 7pt;
   text-align: center;
   font-weight: bold;
-  color: #7b0000;
-  padding: 8px;
+  color: #5a4000;
+  padding: 6px;
   flex-shrink: 0;
   letter-spacing: 0.5px;
 }
-.kop-logo .big { font-size: 9pt; letter-spacing: 2px; }
-.kop-text h1 { font-size: 18pt; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
-.kop-text h2 { font-size: 13pt; font-weight: normal; color: #222; }
-.kop-text .alamat { font-size: 10pt; color: #555; margin-top: 3px; }
-hr.thick { border: none; border-top: 3.5px solid #7b0000; margin: 6px 0 2px; }
-hr.thin  { border: none; border-top: 1px solid #000;    margin: 0 0 12px; }
-.meta { margin: 12px 0; }
-.meta table { border-collapse: collapse; }
-.meta td { padding: 2px 0; vertical-align: top; }
-.meta td.lbl { width: 95px; }
-.meta td.sep { width: 16px; padding: 2px 4px; }
-.kepada { margin: 12px 0 4px; }
-.salam { font-style: italic; margin: 10px 0; }
-.body p { margin: 6px 0; text-align: justify; }
-.detail { margin: 10px 0 10px 24px; border-collapse: collapse; }
+.kop-logo .big { font-size: 11pt; letter-spacing: 3px; }
+.kop-text { text-align: center; }
+.kop-text h1 { font-size: 17pt; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; }
+.kop-text h2 { font-size: 12.5pt; font-weight: bold; text-transform: uppercase; margin-top: 2px; }
+.kop-text .alamat { font-size: 9.5pt; margin-top: 3px; }
+hr.thick { border: none; border-top: 3px solid #000; margin: 6px 0 1px; }
+hr.thin  { border: none; border-top: 1px solid #000; margin: 0 0 14px; }
+
+/* ---- HEADER ROW ---- */
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.undangan-title {
+  font-family: 'Comic Sans MS', 'Segoe Print', 'Bradley Hand', cursive, sans-serif;
+  font-size: 34pt;
+  font-weight: bold;
+  color: #1a3fa0;
+  line-height: 1;
+  padding-top: 4px;
+}
+.kepada-block { text-align: left; line-height: 1.7; font-size: 11.5pt; }
+.kepada-block .lbl { margin-bottom: 2px; }
+
+/* ---- BODY ---- */
+.salam { font-style: italic; margin: 4px 0 10px; }
+.body-text { margin: 0 0 8px; text-align: justify; }
+.detail { margin: 2px 0 10px 10px; border-collapse: collapse; }
 .detail td { padding: 2px 0; vertical-align: top; }
-.detail td.lbl { width: 140px; }
-.detail td.sep { width: 16px; padding: 2px 4px; }
-.penutup p { margin: 6px 0; text-align: justify; }
-.ttd-wrap { margin-top: 24px; display: flex; justify-content: flex-end; page-break-inside: avoid; }
-.ttd { text-align: center; min-width: 240px; }
-.ttd .loc { margin-bottom: 6px; }
-.ttd .jabatan { font-weight: bold; }
-.ttd-space { height: 60px; }
-.ttd .nama { font-weight: bold; text-decoration: underline; }
-.ttd .nip-line { font-size: 11pt; }
+.detail td.lbl { width: 115px; }
+.detail td.sep { width: 14px; padding: 2px 4px; }
+.penutup { margin-top: 10px; text-align: justify; }
+.salam-ttd { font-style: italic; margin: 10px 0 16px; }
+
+/* ---- TTD ---- */
+.ttd-wrap { display: flex; justify-content: flex-end; }
+.ttd { text-align: center; min-width: 230px; }
+.ttd-space { height: 65px; }
+.ttd .nama { font-weight: bold; }
+
+/* ---- BERTUGAS BOX ---- */
+.bertugas-box {
+  display: inline-block;
+  margin-top: 22px;
+  background: #3a8a30;
+  color: #fff;
+  padding: 9px 26px;
+  font-weight: bold;
+  font-size: 13pt;
+  letter-spacing: 0.5px;
+}
 </style>
 </head>
 <body>
+
+<!-- KOP -->
 <div class="kop">
   <div class="kop-logo">
     <span class="big">DWP</span>
@@ -206,61 +268,46 @@ hr.thin  { border: none; border-top: 1px solid #000;    margin: 0 0 12px; }
   </div>
   <div class="kop-text">
     <h1>Dharma Wanita Persatuan</h1>
-    <h2>Pengurus Besar</h2>
-    <p class="alamat">Jakarta &mdash; Indonesia</p>
+    ${d.sub_org ? `<h2>${escHtml(d.sub_org)}</h2>` : ""}
+    ${d.alamat_org ? `<p class="alamat">Alamat : ${escHtml(d.alamat_org)}</p>` : ""}
   </div>
 </div>
 <hr class="thick"/>
 <hr class="thin"/>
 
-<div class="meta">
-  <table>
-    <tr>
-      <td class="lbl">Nomor</td>
-      <td class="sep">:</td>
-      <td>${d.nomor || "&ndash;"}</td>
-    </tr>
-    <tr>
-      <td class="lbl">Lampiran</td>
-      <td class="sep">:</td>
-      <td>&ndash;</td>
-    </tr>
-    <tr>
-      <td class="lbl">Perihal</td>
-      <td class="sep">:</td>
-      <td><strong>Undangan ${escHtml(d.judul)}</strong></td>
-    </tr>
-  </table>
+${nomorRow}
+
+<!-- HEADER: Undangan (kiri) | Kepada (kanan) -->
+<div class="header-row">
+  <div class="undangan-title">Undangan</div>
+  <div class="kepada-block">
+    <p class="lbl">Kepada :</p>
+    <p>Yth. Ibu /saudari</p>
+    <p><strong>${escHtml(d.kepada)}</strong></p>
+    <p>di &ndash; Tempat.</p>
+  </div>
 </div>
 
-<div class="kepada">
-  <p>Kepada Yth.</p>
-  <p><strong>Seluruh Anggota Dharma Wanita Persatuan</strong></p>
-  <p>di Tempat</p>
-</div>
+<!-- SALAM PEMBUKA -->
+<div class="salam"><p>Assalamu&rsquo;alaikum Wr Wb</p></div>
 
-<div class="salam">
-  <p>Assalamu&rsquo;alaikum Warahmatullahi Wabarakatuh</p>
-</div>
+<!-- ISI -->
+<p class="body-text">
+  Dengan &nbsp;ini kami mengundang Ibu /saudari untuk &nbsp;berhadir pada ${escHtml(d.judul)} Dharma
+  Wanita Persatuan${d.sub_org ? ` (DWP) ${escHtml(d.sub_org)}` : ""} yang akan dilaksanakan pada :
+</p>
 
-<div class="body">
-  <p>Dengan hormat,</p>
-  <p>
-    Dalam rangka ${escHtml(isi)}, dengan ini kami mengundang Ibu untuk dapat hadir
-    dalam kegiatan berikut:
-  </p>
-</div>
-
+<!-- DETAIL -->
 <table class="detail">
   <tr>
-    <td class="lbl">Hari / Tanggal</td>
+    <td class="lbl">Hari / tgl</td>
     <td class="sep">:</td>
     <td>${escHtml(d.tglKegStr)}</td>
   </tr>
   <tr>
     <td class="lbl">Waktu</td>
     <td class="sep">:</td>
-    <td>${escHtml(d.waktuStr)}</td>
+    <td>${waktuStr}</td>
   </tr>
   <tr>
     <td class="lbl">Tempat</td>
@@ -268,39 +315,34 @@ hr.thin  { border: none; border-top: 1px solid #000;    margin: 0 0 12px; }
     <td>${d.lokasi ? escHtml(d.lokasi) : "&ndash;"}</td>
   </tr>
   <tr>
-    <td class="lbl">Acara</td>
+    <td class="lbl">A &nbsp;c &nbsp;a &nbsp;r &nbsp;a</td>
     <td class="sep">:</td>
-    <td><strong>${escHtml(d.judul)}</strong></td>
+    <td>${acaraHtml}</td>
   </tr>
+  ${d.dress_code ? `
+  <tr>
+    <td class="lbl">Dress Code</td>
+    <td class="sep">:</td>
+    <td>${escHtml(d.dress_code)}</td>
+  </tr>` : ""}
 </table>
 
-${d.catatan ? `<div class="body"><p>${escHtml(d.catatan)}</p></div>` : ""}
+<!-- PENUTUP -->
+<p class="penutup">Demikian Undangan ini disampaikan, atas perhatiannya diucapkan terima kasih.</p>
+<div class="salam-ttd"><p>Wassalamu&rsquo;alaikum Wr Wb</p></div>
 
-<div class="penutup">
-  <p>
-    Mengingat pentingnya kegiatan tersebut, kami mohon kehadiran Ibu pada waktu
-    dan tempat yang telah ditentukan di atas.
-  </p>
-  <p>
-    Demikian undangan ini kami sampaikan. Atas perhatian dan kehadiran Ibu,
-    kami ucapkan terima kasih.
-  </p>
-</div>
-
-<div class="salam" style="margin-top:16px;">
-  <p>Wassalamu&rsquo;alaikum Warahmatullahi Wabarakatuh</p>
-</div>
-
+<!-- TTD -->
 <div class="ttd-wrap">
   <div class="ttd">
-    <p class="loc">${escHtml(d.kota)}, ${escHtml(d.tglSurat)}</p>
-    <p class="jabatan">${escHtml(d.jabatan_ttd)}</p>
-    <p>Dharma Wanita Persatuan</p>
+    <p>${escHtml(d.jabatan_ttd)} DWP ${escHtml(d.kota)},</p>
     <div class="ttd-space"></div>
     <p class="nama">${escHtml(d.penandatangan)}</p>
-    ${d.nip_ttd ? `<p class="nip-line">NIP. ${escHtml(d.nip_ttd)}</p>` : ""}
   </div>
 </div>
+
+<!-- YANG BERTUGAS (hanya jika ada) -->
+${d.unit_kerja_bertugas ? `<div class="bertugas-box">Yang Bertugas Departemen &nbsp; ${escHtml(d.unit_kerja_bertugas)}</div>` : ""}
+
 </body>
 </html>`;
 }
