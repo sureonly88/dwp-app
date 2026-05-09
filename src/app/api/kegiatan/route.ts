@@ -66,9 +66,14 @@ export async function GET(req: NextRequest) {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const [rows] = await pool.execute<KegiatanRow[]>(
-      `SELECT k.*, (SELECT COUNT(*) FROM presensi p WHERE p.kegiatan_id = k.id) AS hadir_count,
-              (SELECT COUNT(*) FROM presensi_tamu pt WHERE pt.kegiatan_id = k.id) AS tamu_count
-       FROM kegiatan k ${where}
+      `SELECT k.*,
+              COUNT(DISTINCT p.id)  AS hadir_count,
+              COUNT(DISTINCT pt.id) AS tamu_count
+       FROM kegiatan k
+       LEFT JOIN presensi p      ON p.kegiatan_id  = k.id
+       LEFT JOIN presensi_tamu pt ON pt.kegiatan_id = k.id
+       ${where}
+       GROUP BY k.id
        ORDER BY k.tanggal DESC, k.waktu_mulai DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]

@@ -13,35 +13,87 @@ export async function GET() {
       .toISOString()
       .slice(0, 10);
 
-    // 1. Anggota stats
-    const [[anggotaRow]] = await pool.execute<RowDataPacket[]>(`
-      SELECT
-        COUNT(*) AS total,
-        SUM(status = 'Aktif') AS aktif,
-        SUM(status = 'Non-Aktif') AS non_aktif,
-        SUM(status = 'Cuti') AS cuti,
-        SUM(jabatan <> 'Anggota' AND status = 'Aktif') AS pengurus_aktif
-      FROM anggota
-    `);
-
-    // 2. Unit kerja aktif
-    const [[unitRow]] = await pool.execute<RowDataPacket[]>(
-      "SELECT COUNT(*) AS total FROM unit_kerja WHERE aktif = 1"
-    );
-
-    // 3. Kegiatan bulan ini
-    const [[kegiatanBulanIni]] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) AS total FROM kegiatan WHERE tanggal BETWEEN ? AND ?`,
-      [periodStart, periodEnd]
-    );
-
-    // 4. Iuran bulan ini (tarif)
-    const [[tarifRow]] = await pool.execute<RowDataPacket[]>(`
-      SELECT nominal_anggota, nominal_pengurus
-      FROM iuran_tarif
-      WHERE aktif = 1 AND periode_mulai <= ?
-      ORDER BY periode_mulai DESC LIMIT 1
-    `, [periodEnd]);
+    // Jalankan semua query independen secara paralel untuk meminimalkan latency DB
+    const [
+      [[anggotaRow]],
+      [[unitRow]],
+      [[kegiatanBulanIni]],
+      [[tarifRow]],
+      [upcomingRows],
+      [recentAnggota],
+      [unitDist],
+      [kegiatanHistory],
+    ] = await Promise.all([
+      // 1. Anggota stats
+      pool.execute<RowDataPacket[]>(`
+        SELECT
+          COUNT(*) AS total,
+          SUM(status = 'Aktif') AS aktif,
+          SUM(status = 'Non-Aktif') AS non_aktif,
+          SUM(status = 'Cuti') AS cuti,
+          SUM(jabatan <> 'Anggota' AND status = 'Aktif') AS pengurus_aktif
+        FROM anggota
+      `),
+      // 2. Unit kerja aktif
+      pool.execute<RowDataPacket[]>(
+        "SELECT COUNT(*) AS total FROM unit_kerja WHERE aktif = 1"
+      ),
+      // 3. Kegiatan bulan ini
+      pool.execute<RowDataPacket[]>(
+        `SELECT COUNT(*) AS total FROM kegiatan WHERE tanggal BETWEEN ? AND ?`,
+        [periodStart, periodEnd]
+      ),
+      // 4. Iuran bulan ini (tarif)
+      pool.execute<RowDataPacket[]>(`
+        SELECT nominal_anggota, nominal_pengurus
+        FROM iuran_tarif
+        WHERE aktif = 1 AND periode_mulai <= ?
+        ORDER BY periode_mulai DESC LIMIT 1
+      `, [periodEnd]),
+      // 5. 5 kegiatan terdekat (mendatang/berlangsung)
+      pool.execute<RowDataPacket[]>(`
+        SELECT k.id, k.judul, k.tanggal, k.waktu_mulai, k.waktu_selesai,
+               k.lokasi, k.status, k.kategori, k.target_peserta,
+               COUNT(p.id) AS hadir_count
+        FROM kegiatan k
+        LEFT JOIN presensi p ON p.kegiatan_id = k.id
+        WHERE k.tanggal >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        GROUP BY k.id
+        ORDER BY k.tanggal ASC, k.waktu_mulai ASC
+        LIMIT 5
+      `),
+      // 6. 5 anggota terbaru
+      pool.execute<RowDataPacket[]>(`
+        SELECT id, nama, nip, jabatan, unit_kerja, status, join_date
+        FROM anggota
+        ORDER BY join_date DESC, id DESC
+        LIMIT 5
+      `),
+      // 7. Anggota per unit (untuk chart)
+      pool.execute<RowDataPacket[]>(`
+        SELECT unit_kerja AS unit, COUNT(*) AS total,
+               SUM(status = 'Aktif') AS aktif
+        FROM anggota
+        GROUP BY unit_kerja
+        ORDER BY aktif DESC
+      `),
+      // 8. Kegiatan selesai 6 bulan terakhir (untuk chart presensi)
+      pool.execute<RowDataPacket[]>(`
+        SELECT
+          DATE_FORMAT(k.tanggal, '%b %Y') AS label,
+          DATE_FORMAT(k.tanggal, '%Y-%m') AS bulan_key,
+          COUNT(k.id) AS jumlah_kegiatan,
+          COALESCE(SUM(ps.cnt), 0) AS total_hadir
+        FROM kegiatan k
+        LEFT JOIN (
+          SELECT kegiatan_id, COUNT(*) AS cnt FROM presensi GROUP BY kegiatan_id
+        ) ps ON ps.kegiatan_id = k.id
+        WHERE k.tanggal >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+          AND k.status IN ('Selesai', 'Berlangsung')
+        GROUP BY bulan_key, label
+        ORDER BY bulan_key ASC
+      `),
+    ]);
 
     // estimate total iuran bulan ini
     let estimasiIuran = 0;
@@ -53,20 +105,7 @@ export async function GET() {
       estimasiIuran = totalAktif * na + pengurusAktif * np;
     }
 
-    // 5. 5 kegiatan terdekat (mendatang/berlangsung)
-    const [upcomingRows] = await pool.execute<RowDataPacket[]>(`
-      SELECT k.id, k.judul, k.tanggal, k.waktu_mulai, k.waktu_selesai,
-             k.lokasi, k.status, k.kategori, k.target_peserta,
-             COUNT(p.id) AS hadir_count
-      FROM kegiatan k
-      LEFT JOIN presensi p ON p.kegiatan_id = k.id
-      WHERE k.tanggal >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-      GROUP BY k.id
-      ORDER BY k.tanggal ASC, k.waktu_mulai ASC
-      LIMIT 5
-    `);
-
-    const upcoming = upcomingRows.map((r) => ({
+    const upcoming = (upcomingRows as RowDataPacket[]).map((r) => ({
       id: r.id,
       judul: r.judul,
       tanggal: r.tanggal,
@@ -77,40 +116,6 @@ export async function GET() {
       hadir: Number(r.hadir_count),
       target: r.target_peserta,
     }));
-
-    // 6. 5 anggota baru (join terbaru)
-    const [recentAnggota] = await pool.execute<RowDataPacket[]>(`
-      SELECT id, nama, nip, jabatan, unit_kerja, status, join_date
-      FROM anggota
-      ORDER BY join_date DESC, id DESC
-      LIMIT 5
-    `);
-
-    // 7. Anggota per unit (untuk chart)
-    const [unitDist] = await pool.execute<RowDataPacket[]>(`
-      SELECT unit_kerja AS unit, COUNT(*) AS total,
-             SUM(status = 'Aktif') AS aktif
-      FROM anggota
-      GROUP BY unit_kerja
-      ORDER BY aktif DESC
-    `);
-
-    // 8. Kegiatan selesai 6 bulan terakhir (untuk chart presensi)
-    const [kegiatanHistory] = await pool.execute<RowDataPacket[]>(`
-      SELECT
-        DATE_FORMAT(k.tanggal, '%b %Y') AS label,
-        DATE_FORMAT(k.tanggal, '%Y-%m') AS bulan_key,
-        COUNT(k.id) AS jumlah_kegiatan,
-        COALESCE(SUM(ps.cnt), 0) AS total_hadir
-      FROM kegiatan k
-      LEFT JOIN (
-        SELECT kegiatan_id, COUNT(*) AS cnt FROM presensi GROUP BY kegiatan_id
-      ) ps ON ps.kegiatan_id = k.id
-      WHERE k.tanggal >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-        AND k.status IN ('Selesai', 'Berlangsung')
-      GROUP BY bulan_key, label
-      ORDER BY bulan_key ASC
-    `);
 
     return NextResponse.json({
       stats: {

@@ -8,9 +8,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const { id } = await params;
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT k.*, (SELECT COUNT(*) FROM presensi p WHERE p.kegiatan_id = k.id) AS hadir_count,
-              (SELECT COUNT(*) FROM presensi_tamu pt WHERE pt.kegiatan_id = k.id) AS tamu_count
-       FROM kegiatan k WHERE k.id = ?`,
+      `SELECT k.*,
+              COUNT(DISTINCT p.id)  AS hadir_count,
+              COUNT(DISTINCT pt.id) AS tamu_count
+       FROM kegiatan k
+       LEFT JOIN presensi p       ON p.kegiatan_id  = k.id
+       LEFT JOIN presensi_tamu pt  ON pt.kegiatan_id = k.id
+       WHERE k.id = ?
+       GROUP BY k.id`,
       [id]
     );
     if (rows.length === 0) {

@@ -8,10 +8,12 @@ export async function GET(_req: NextRequest) {
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
          k.id, k.judul, k.tanggal, k.lokasi, k.kategori, k.status, k.event_code,
-         (SELECT COUNT(*) FROM doorprize_hadiah h WHERE h.kegiatan_id = k.id) AS total_hadiah,
-         (SELECT COUNT(*) FROM doorprize_winners w WHERE w.kegiatan_id = k.id) AS total_winners
-       FROM kegiatan k
-       WHERE EXISTS (SELECT 1 FROM doorprize_hadiah h WHERE h.kegiatan_id = k.id)
+         COUNT(DISTINCT h.id) AS total_hadiah,
+         COUNT(DISTINCT w.id) AS total_winners
+       FROM doorprize_hadiah h
+       JOIN kegiatan k              ON k.id = h.kegiatan_id
+       LEFT JOIN doorprize_winners w ON w.kegiatan_id = k.id
+       GROUP BY k.id
        ORDER BY k.tanggal DESC`
     );
     return NextResponse.json({ data: rows });

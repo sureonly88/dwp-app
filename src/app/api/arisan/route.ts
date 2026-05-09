@@ -9,9 +9,11 @@ export async function GET(_req: NextRequest) {
       `SELECT
          k.id, k.judul, k.tanggal, k.lokasi, k.kategori, k.status, k.event_code,
          s.nominal_per_orang, s.jumlah_pemenang,
-         (SELECT COUNT(*) FROM arisan_winners w WHERE w.kegiatan_id = k.id) AS total_winners
+         COUNT(w.id) AS total_winners
        FROM arisan_setup s
-       JOIN kegiatan k ON k.id = s.kegiatan_id
+       JOIN kegiatan k         ON k.id = s.kegiatan_id
+       LEFT JOIN arisan_winners w ON w.kegiatan_id = k.id
+       GROUP BY k.id, s.nominal_per_orang, s.jumlah_pemenang
        ORDER BY k.tanggal DESC`
     );
     return NextResponse.json({ data: rows });

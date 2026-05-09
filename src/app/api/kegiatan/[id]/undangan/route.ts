@@ -74,17 +74,28 @@ export async function POST(
 
     const browser = await puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",   // wajib di Docker (shared memory terbatas)
+        "--disable-gpu",
+        "--single-process",
+      ],
     });
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    const pdfRaw = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "2cm", bottom: "2cm", left: "2.5cm", right: "2cm" },
-    });
-    await browser.close();
-    const pdfBuffer = Buffer.from(pdfRaw);
+    let pdfBuffer: Buffer;
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: "networkidle0" });
+      const pdfRaw = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        margin: { top: "2cm", bottom: "2cm", left: "2.5cm", right: "2cm" },
+      });
+      pdfBuffer = Buffer.from(pdfRaw);
+    } finally {
+      await browser.close();
+    }
 
     const safeJudul = (kegiatan.judul as string).replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "-").toLowerCase();
     const filename = `undangan-${safeJudul}.pdf`;
