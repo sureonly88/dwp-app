@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js build output
+.next/
+out/
+build/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Version control
+.git/
+.gitignore
+
+# Dev tools
+.DS_Store
+*.pem
+coverage/
+.eslintcache
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+
+# Scripts tidak perlu di build stage (di-copy langsung di Dockerfile)
+# Sudah di-handle per-stage di Dockerfile

@@ -1,0 +1,101 @@
+import { NextRequest, NextResponse } from "next/server";
+import pool from "@/lib/db";
+import type { RowDataPacket, ResultSetHeader } from "mysql2";
+
+export interface AnggotaRow extends RowDataPacket {
+  id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  status: "Aktif" | "Non-Aktif" | "Cuti";
+  no_hp: string | null;
+  email: string | null;
+  alamat: string | null;
+  join_date: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// GET /api/anggota?search=&status=&unit=&page=&limit=
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get("search") ?? "";
+    const status = searchParams.get("status") ?? "";
+    const unit = searchParams.get("unit") ?? "";
+    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
+    const limit = Math.min(100, parseInt(searchParams.get("limit") ?? "10"));
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (search) {
+      conditions.push("(nama LIKE ? OR nip LIKE ?)");
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    if (status) {
+      conditions.push("status = ?");
+      params.push(status);
+    }
+    if (unit) {
+      conditions.push("unit_kerja = ?");
+      params.push(unit);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const [rows] = await pool.execute<AnggotaRow[]>(
+      `SELECT * FROM anggota ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    const [[{ total }]] = await pool.execute<(RowDataPacket & { total: number })[]>(
+      `SELECT COUNT(*) as total FROM anggota ${where}`,
+      params
+    );
+
+    return NextResponse.json({ data: rows, total, page, limit });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Gagal mengambil data" }, { status: 500 });
+  }
+}
+
+// POST /api/anggota
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar } = body;
+
+    if (!nama || !nip || !jabatan || !unit_kerja) {
+      return NextResponse.json({ error: "Field wajib tidak lengkap" }, { status: 400 });
+    }
+
+    const [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nama,
+        nip,
+        jabatan,
+        unit_kerja,
+        status ?? "Aktif",
+        no_hp ?? null,
+        email ?? null,
+        alamat ?? null,
+        join_date ?? new Date().toISOString().split("T")[0],
+        tanggal_keluar ? String(tanggal_keluar).slice(0, 10) : null,
+      ]
+    );
+
+    return NextResponse.json({ id: result.insertId, message: "Anggota berhasil ditambahkan" }, { status: 201 });
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === "ER_DUP_ENTRY") {
+      return NextResponse.json({ error: "NIP sudah terdaftar" }, { status: 409 });
+    }
+    console.error(err);
+    return NextResponse.json({ error: "Gagal menambah data" }, { status: 500 });
+  }
+}

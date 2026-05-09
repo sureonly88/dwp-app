@@ -1,0 +1,39 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_USER: ${DB_USER:-dwpuser}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD wajib diisi di file .env}
+      DB_NAME: ${DB_NAME:-dwp}
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET wajib diisi di file .env}
+      DWP_SEED_ADMIN_PASSWORD_HASH: ${DWP_SEED_ADMIN_PASSWORD_HASH:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD wajib diisi di file .env}
+      MYSQL_DATABASE: ${DB_NAME:-dwp}
+      MYSQL_USER: ${DB_USER:-dwpuser}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD wajib diisi di file .env}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
