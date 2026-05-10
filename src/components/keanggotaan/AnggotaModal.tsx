@@ -28,8 +28,17 @@ interface AnggotaModalProps {
   onSuccess: () => void;
 }
 
-const JABATAN_OPTIONS = ["Ketua", "Wakil Ketua", "Sekretaris", "Bendahara", "Pengurus", "Anggota"];
-const STATUS_OPTIONS = ["Aktif", "Non-Aktif", "Cuti"];
+const JABATAN_OPTIONS = [
+  "Ketua",
+  "Wakil Ketua",
+  "Sekretaris",
+  "Bendahara",
+  "Ketua Bidang Pendidikan",
+  "Ketua Bidang Ekonomi",
+  "Ketua Sosial Budaya",
+  "Anggota",
+];
+const STATUS_OPTIONS = ["Aktif", "Non-Aktif"];
 
 const EMPTY_FORM: AnggotaFormData = {
   nama: "",

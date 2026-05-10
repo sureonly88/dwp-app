@@ -104,11 +104,12 @@ export default function PostingIuranPage() {
               <div className="bg-surface-container-low p-4 rounded-xl mb-4">
                 <p className="text-label-sm text-on-surface-variant">Periode</p>
                 <p className="font-h3 text-h3 text-on-surface">{data.periode.label}</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-body-sm">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3 text-body-sm">
                   <div><span className="text-on-surface-variant">Anggota aktif:</span> <b>{data.summary.total_anggota_aktif}</b></div>
                   <div><span className="text-on-surface-variant">Pengurus aktif:</span> <b>{data.summary.total_pengurus_aktif}</b></div>
                   <div><span className="text-on-surface-variant">Tarif anggota:</span> <b>{data.tarif ? fmt(data.tarif.nominal_anggota) : "-"}</b></div>
                   <div><span className="text-on-surface-variant">Tarif pengurus:</span> <b>{data.tarif ? fmt(data.tarif.nominal_pengurus) : "-"}</b></div>
+                  <div><span className="text-on-surface-variant">Total iuran:</span> <b>{fmt(data.summary.total_iuran_anggota + data.summary.total_iuran_pengurus)}</b></div>
                 </div>
               </div>
 
@@ -119,7 +120,7 @@ export default function PostingIuranPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {(["anggota", "pengurus"] as const).map((jns) => {
                   const item = jns === "anggota" ? data.posting.iuran_anggota : data.posting.iuran_pengurus;
                   const jumlah = jns === "anggota" ? data.posting.iuran_anggota.jumlah_anggota : data.posting.iuran_pengurus.jumlah_pengurus;
@@ -143,6 +144,16 @@ export default function PostingIuranPage() {
                     </Card>
                   );
                 })}
+                <Card className="p-5 border border-outline-variant bg-tertiary-container" hover={false}>
+                  <div className="flex items-start justify-between mb-2">
+                    <h4 className="font-label-md text-on-tertiary-container uppercase tracking-wide">Total Iuran</h4>
+                    <Badge label="Anggota + Pengurus" variant="info" />
+                  </div>
+                  <p className="text-body-sm text-on-tertiary-container/80">Total iuran anggota ditambah iuran pengurus</p>
+                  <p className="font-h2 text-h2 text-on-tertiary-container mt-1">
+                    {fmt(data.summary.total_iuran_anggota + data.summary.total_iuran_pengurus)}
+                  </p>
+                </Card>
               </div>
 
               <div className="mt-4 flex justify-end">

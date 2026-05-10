@@ -204,18 +204,12 @@ export default function KeanggotaanPage() {
       )}
 
       <div className="flex flex-col gap-8">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
           <div>
             <h2 className="font-h2 text-h2 text-primary">Manajemen Keanggotaan</h2>
             <p className="text-body-md text-on-surface-variant max-w-2xl mt-1">
               Kelola data seluruh anggota Dharma Wanita Persatuan dengan sistematis.
             </p>
-          </div>
-          <div className="flex gap-3">
-            <Button variant="outline" icon="download">Ekspor Data</Button>
-            <Button icon="person_add" size="lg" onClick={() => setModal("add")}>
-              Tambah Anggota
-            </Button>
           </div>
         </div>
 
@@ -246,21 +240,27 @@ export default function KeanggotaanPage() {
               </div>
             )}
           </div>
-          <div className="col-span-2 bg-primary-container p-6 rounded-xl text-on-primary-container relative overflow-hidden">
-            <div className="absolute right-0 bottom-0 opacity-10 -rotate-12 translate-x-4 translate-y-4 pointer-events-none">
-              <span className="material-symbols-outlined text-[120px]">diversity_1</span>
+          <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl">
+            <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Anggota Non-Aktif</p>
+            <div className="flex items-end justify-between gap-4">
+              <h3 className="font-h1 text-[36px] text-error leading-tight">
+                {data.filter((a) => a.status === "Non-Aktif").length}
+              </h3>
             </div>
-            <div className="relative z-10 flex items-center justify-between h-full gap-4">
-              <div>
-                <p className="font-h3 text-h3 mb-1">Keaktifan Bulan Ini</p>
-                <p className="text-body-sm opacity-90">
-                  Partisipasi anggota dalam kegiatan bulanan meningkat secara signifikan.
-                </p>
+            {data.length > 0 && (
+              <div className="w-full h-2 bg-error-container rounded-full overflow-hidden mt-2">
+                <div
+                  className="h-full bg-error rounded-full transition-all"
+                  style={{ width: `${(data.filter((a) => a.status === "Non-Aktif").length / data.length) * 100}%` }}
+                />
               </div>
-              <button className="bg-on-primary-container text-primary font-label-md py-2 px-6 rounded-lg whitespace-nowrap flex-shrink-0 text-label-md">
-                Lihat Laporan
-              </button>
-            </div>
+            )}
+          </div>
+          <div className="col-span-2 lg:col-span-1 flex flex-wrap items-center justify-start lg:justify-end gap-3">
+            <Button variant="outline" icon="download">Ekspor Data</Button>
+            <Button icon="person_add" size="lg" onClick={() => setModal("add")}>
+              Tambah Anggota
+            </Button>
           </div>
         </div>
 
