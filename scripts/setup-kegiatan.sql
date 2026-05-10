@@ -19,8 +19,21 @@ CREATE TABLE IF NOT EXISTS kegiatan (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Tambah kolom unit_kerja_bertugas jika belum ada (idempotent untuk DB lama)
-ALTER TABLE kegiatan
-  ADD COLUMN IF NOT EXISTS unit_kerja_bertugas VARCHAR(100) NULL AFTER target_peserta;
+SET @column_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'kegiatan'
+    AND COLUMN_NAME = 'unit_kerja_bertugas'
+);
+SET @sql = IF(
+  @column_exists = 0,
+  'ALTER TABLE kegiatan ADD COLUMN unit_kerja_bertugas VARCHAR(100) NULL AFTER target_peserta',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- Tabel presensi (kehadiran)
 CREATE TABLE IF NOT EXISTS presensi (
@@ -38,5 +51,18 @@ CREATE TABLE IF NOT EXISTS presensi (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Tambah kolom foto pada presensi jika belum ada (idempotent untuk DB lama)
-ALTER TABLE presensi
-  ADD COLUMN IF NOT EXISTS foto MEDIUMTEXT NULL AFTER catatan;
+SET @column_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'presensi'
+    AND COLUMN_NAME = 'foto'
+);
+SET @sql = IF(
+  @column_exists = 0,
+  'ALTER TABLE presensi ADD COLUMN foto MEDIUMTEXT NULL AFTER catatan',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;

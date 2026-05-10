@@ -2,8 +2,21 @@
 -- Jalankan: mysql --socket=/tmp/mysql.sock -u yakinyakin dwp < scripts/setup-iuran.sql
 
 -- 1) Tambah kolom tanggal_keluar pada tabel anggota (NULL = masih aktif/belum keluar)
-ALTER TABLE anggota
-  ADD COLUMN IF NOT EXISTS tanggal_keluar DATE NULL AFTER join_date;
+SET @column_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'anggota'
+    AND COLUMN_NAME = 'tanggal_keluar'
+);
+SET @sql = IF(
+  @column_exists = 0,
+  'ALTER TABLE anggota ADD COLUMN tanggal_keluar DATE NULL AFTER join_date',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- 2) Tabel tarif iuran. Tarif berlaku mulai periode_mulai (tanggal 1 bulan tsb).
 --    Untuk bulan X, tarif yang dipakai adalah baris dengan periode_mulai terbesar yang <= akhir bulan X

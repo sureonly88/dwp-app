@@ -20,8 +20,21 @@ CREATE TABLE IF NOT EXISTS auth_users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Tambahkan kolom anggota_id jika tabel sudah ada tanpa kolom ini
-ALTER TABLE auth_users
-  ADD COLUMN IF NOT EXISTS anggota_id INT UNSIGNED NULL DEFAULT NULL AFTER aktif;
+SET @column_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'auth_users'
+    AND COLUMN_NAME = 'anggota_id'
+);
+SET @sql = IF(
+  @column_exists = 0,
+  'ALTER TABLE auth_users ADD COLUMN anggota_id INT UNSIGNED NULL DEFAULT NULL AFTER aktif',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- Seed user admin default (password: admin123) — ganti setelah deploy pertama!
 -- Hash ini di-generate menggunakan lib/password.ts hashPassword("admin123")
