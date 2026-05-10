@@ -3,6 +3,22 @@ import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
 import QRCode from "qrcode";
 
+function getPublicOrigin(req: NextRequest) {
+  const configuredUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
+  if (configuredUrl) return configuredUrl.replace(/\/$/, "");
+
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  const forwardedProto = req.headers.get("x-forwarded-proto") ?? "https";
+  if (forwardedHost) return `${forwardedProto}://${forwardedHost}`;
+
+  const host = req.headers.get("host");
+  if (host && !host.startsWith("0.0.0.0")) {
+    return `${req.nextUrl.protocol}//${host}`;
+  }
+
+  return req.nextUrl.origin;
+}
+
 // GET /api/kegiatan/[id]/qr  -> returns SVG QR code that links to public presensi page
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -17,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const eventCode = (rows[0] as { event_code: string }).event_code;
 
     // Build absolute URL pointing to public presensi page
-    const origin = req.nextUrl.origin;
+    const origin = getPublicOrigin(req);
     const url = `${origin}/presensi/${eventCode}`;
 
     const svg = await QRCode.toString(url, {
