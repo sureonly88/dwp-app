@@ -24,8 +24,10 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get("search") ?? "";
     const status = searchParams.get("status") ?? "";
     const unit = searchParams.get("unit") ?? "";
-    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
-    const limit = Math.min(100, parseInt(searchParams.get("limit") ?? "10"));
+    const parsedPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
+    const parsedLimit = Number.parseInt(searchParams.get("limit") ?? "10", 10);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(100, parsedLimit) : 10;
     const offset = (page - 1) * limit;
 
     const conditions: string[] = [];
@@ -47,8 +49,8 @@ export async function GET(req: NextRequest) {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const [rows] = await pool.execute<AnggotaRow[]>(
-      `SELECT * FROM anggota ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+      `SELECT * FROM anggota ${where} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
     );
 
     const [[{ total }]] = await pool.execute<(RowDataPacket & { total: number })[]>(

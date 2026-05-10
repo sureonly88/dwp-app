@@ -35,8 +35,10 @@ export async function GET(req: NextRequest) {
     const kategori = searchParams.get("kategori") ?? "";
     const from = searchParams.get("from") ?? "";
     const to = searchParams.get("to") ?? "";
-    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
-    const limit = Math.min(500, parseInt(searchParams.get("limit") ?? "10"));
+    const parsedPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
+    const parsedLimit = Number.parseInt(searchParams.get("limit") ?? "10", 10);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(500, parsedLimit) : 10;
     const offset = (page - 1) * limit;
 
     const conditions: string[] = [];
@@ -75,8 +77,8 @@ export async function GET(req: NextRequest) {
        ${where}
        GROUP BY k.id
        ORDER BY k.tanggal DESC, k.waktu_mulai DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+       LIMIT ${limit} OFFSET ${offset}`,
+      params
     );
 
     const [[{ total }]] = await pool.execute<(RowDataPacket & { total: number })[]>(
