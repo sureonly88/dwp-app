@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS kegiatan (
 ALTER TABLE kegiatan
   ADD COLUMN IF NOT EXISTS unit_kerja_bertugas VARCHAR(100) NULL AFTER target_peserta;
 
+-- Tambah kolom foto pada presensi jika belum ada
+ALTER TABLE presensi
+  ADD COLUMN IF NOT EXISTS foto MEDIUMTEXT NULL AFTER catatan;
+
 -- Tabel presensi (kehadiran)
 CREATE TABLE IF NOT EXISTS presensi (
   id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
@@ -30,6 +34,7 @@ CREATE TABLE IF NOT EXISTS presensi (
   waktu_hadir TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   metode ENUM('QR','Manual') NOT NULL DEFAULT 'QR',
   catatan VARCHAR(255) NULL,
+  foto MEDIUMTEXT NULL,
   CONSTRAINT fk_presensi_kegiatan FOREIGN KEY (kegiatan_id) REFERENCES kegiatan(id) ON DELETE CASCADE,
   CONSTRAINT fk_presensi_anggota FOREIGN KEY (anggota_id) REFERENCES anggota(id) ON DELETE CASCADE,
   UNIQUE KEY uniq_presensi_anggota (kegiatan_id, anggota_id),
