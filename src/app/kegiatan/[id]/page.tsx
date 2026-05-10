@@ -104,6 +104,24 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     kepada: "Pengurus & Anggota DWP",
   });
 
+  // Load default undangan values from org settings
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((s: Record<string, string>) => {
+        setUndForm((prev) => ({
+          ...prev,
+          sub_org: s.org_sub_name ?? prev.sub_org,
+          alamat_org: s.org_address ?? prev.alamat_org,
+          kota: s.org_city ?? prev.kota,
+          zona_waktu: s.org_timezone ?? prev.zona_waktu,
+          kepada: s.undangan_kepada ?? prev.kepada,
+          jabatan_ttd: s.undangan_jabatan ?? prev.jabatan_ttd,
+        }));
+      })
+      .catch(() => {/* gunakan nilai default jika gagal */});
+  }, []);
+
   const [manualQuery, setManualQuery] = useState("");
   const [suggest, setSuggest] = useState<AnggotaSuggest[]>([]);
   const [adding, setAdding] = useState(false);

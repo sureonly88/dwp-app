@@ -22,10 +22,6 @@ CREATE TABLE IF NOT EXISTS kegiatan (
 ALTER TABLE kegiatan
   ADD COLUMN IF NOT EXISTS unit_kerja_bertugas VARCHAR(100) NULL AFTER target_peserta;
 
--- Tambah kolom foto pada presensi jika belum ada
-ALTER TABLE presensi
-  ADD COLUMN IF NOT EXISTS foto MEDIUMTEXT NULL AFTER catatan;
-
 -- Tabel presensi (kehadiran)
 CREATE TABLE IF NOT EXISTS presensi (
   id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
@@ -40,3 +36,7 @@ CREATE TABLE IF NOT EXISTS presensi (
   UNIQUE KEY uniq_presensi_anggota (kegiatan_id, anggota_id),
   INDEX idx_presensi_waktu (waktu_hadir)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tambah kolom foto pada presensi jika belum ada (idempotent untuk DB lama)
+ALTER TABLE presensi
+  ADD COLUMN IF NOT EXISTS foto MEDIUMTEXT NULL AFTER catatan;

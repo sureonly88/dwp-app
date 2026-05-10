@@ -44,6 +44,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Administrasi",
     items: [
       { label: "Manajemen User", href: "/users", icon: "manage_accounts" },
+      { label: "Pengaturan", href: "/pengaturan", icon: "settings" },
     ],
   },
 ];

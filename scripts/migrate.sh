@@ -77,4 +77,7 @@ run_sql "$SCRIPTS_DIR/setup-kas.sql"
 # 9. Seed data awal (idempotent)
 run_sql "$SCRIPTS_DIR/seed.sql"
 
+# 10. Pengaturan organisasi
+run_sql "$SCRIPTS_DIR/setup-settings.sql"
+
 echo "[migrate] ✓ Semua migration berhasil dijalankan."
