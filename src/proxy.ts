@@ -8,8 +8,14 @@ function isPublicPage(pathname: string) {
   return PUBLIC_PAGE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-function isPublicApi(pathname: string) {
-  return PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+function isPublicApi(pathname: string, method: string) {
+  if (PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    return true;
+  }
+
+  // Public presensi page allows non-member guests to submit attendance without login.
+  // Keep GET/DELETE protected because those endpoints are used by admin kegiatan detail.
+  return method === "POST" && /^\/api\/kegiatan\/\d+\/presensi\/tamu$/.test(pathname);
 }
 
 function pageRoles(pathname: string): UserRole[] | null {
@@ -51,7 +57,7 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/", req.url));
   }
 
-  if ((isApi && isPublicApi(pathname)) || (!isApi && isPublicPage(pathname))) {
+  if ((isApi && isPublicApi(pathname, req.method)) || (!isApi && isPublicPage(pathname))) {
     return NextResponse.next();
   }
 
