@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Tipe kategori tidak sesuai" }, { status: 400 });
     }
     // Cegah pembuatan manual dengan kategori sistem (iuran/penjualan) — harus via posting
-    if (cat.code === "IURAN_ANGGOTA" || cat.code === "IURAN_PENGURUS" || cat.code === "PENJUALAN_BARANG") {
+    if (cat.code === "IURAN_ANGGOTA" || cat.code === "IURAN_KONSUMSI_ANGGOTA" || cat.code === "IURAN_PENGURUS" || cat.code === "PENJUALAN_BARANG") {
       return NextResponse.json({
         error: "Kategori ini hanya bisa diposting otomatis dari modul terkait (Iuran / Penjualan)"
       }, { status: 400 });

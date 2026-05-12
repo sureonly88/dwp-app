@@ -24,6 +24,7 @@ DEALLOCATE PREPARE stmt;
 CREATE TABLE IF NOT EXISTS iuran_tarif (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   nominal_anggota DECIMAL(12,2) NOT NULL DEFAULT 0,
+  nominal_konsumsi_anggota DECIMAL(12,2) NOT NULL DEFAULT 0,
   nominal_pengurus DECIMAL(12,2) NOT NULL DEFAULT 0,
   periode_mulai DATE NOT NULL,
   aktif TINYINT(1) NOT NULL DEFAULT 1,
@@ -33,7 +34,24 @@ CREATE TABLE IF NOT EXISTS iuran_tarif (
   UNIQUE KEY uniq_periode (periode_mulai)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Tambah kolom konsumsi anggota untuk database yang sudah terlanjur dibuat
+SET @column_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'iuran_tarif'
+    AND COLUMN_NAME = 'nominal_konsumsi_anggota'
+);
+SET @sql = IF(
+  @column_exists = 0,
+  'ALTER TABLE iuran_tarif ADD COLUMN nominal_konsumsi_anggota DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER nominal_anggota',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 -- Seed tarif default jika tabel kosong
-INSERT INTO iuran_tarif (nominal_anggota, nominal_pengurus, periode_mulai, aktif, catatan)
-SELECT 25000, 50000, DATE_FORMAT(CURDATE(), '%Y-%m-01'), 1, 'Tarif awal'
+INSERT INTO iuran_tarif (nominal_anggota, nominal_konsumsi_anggota, nominal_pengurus, periode_mulai, aktif, catatan)
+SELECT 25000, 0, 50000, DATE_FORMAT(CURDATE(), '%Y-%m-01'), 1, 'Tarif awal'
 WHERE NOT EXISTS (SELECT 1 FROM iuran_tarif);

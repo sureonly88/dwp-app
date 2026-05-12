@@ -17,19 +17,34 @@ export async function GET(req: NextRequest) {
   const lastDay = new Date(tahun, bulan, 0).getDate();
   const monthEnd = `${tahun}-${String(bulan).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
+  await pool.execute(
+    `INSERT IGNORE INTO cash_categories (code, name, type, is_system, description) VALUES
+      ('IURAN_KONSUMSI_ANGGOTA', 'Iuran Konsumsi Anggota', 'income', 1, 'Posting rekap iuran konsumsi anggota dari modul Iuran')`
+  );
+  await pool.execute(
+    `UPDATE cash_categories
+        SET name='Iuran Arisan Anggota', description='Posting rekap iuran arisan anggota dari modul Iuran'
+      WHERE code='IURAN_ANGGOTA'`
+  );
+
+  const reportableStatusSql = `(
+    t.status='approved'
+    OR (t.status='pending' AND t.source_type IN ('iuran_anggota','iuran_konsumsi_anggota','iuran_pengurus'))
+  )`;
+
   const [[awal], catIncome, catExpense, daftar] = await Promise.all([
     pool.execute<RowDataPacket[]>(
       `SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0)
             - COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS saldo_awal
-       FROM cash_transactions
-       WHERE status='approved' AND transaction_date < ?`,
+       FROM cash_transactions t
+       WHERE ${reportableStatusSql} AND transaction_date < ?`,
       [monthStart]
     ).then(([r]) => r),
     pool.execute<RowDataPacket[]>(
       `SELECT c.id, c.name, c.code, COALESCE(SUM(t.amount),0) AS total, COUNT(t.id) AS jumlah
          FROM cash_categories c
          LEFT JOIN cash_transactions t
-           ON t.category_id=c.id AND t.status='approved' AND t.type='income'
+           ON t.category_id=c.id AND ${reportableStatusSql} AND t.type='income'
           AND t.transaction_date BETWEEN ? AND ?
         WHERE c.type='income'
         GROUP BY c.id, c.name, c.code
@@ -41,7 +56,7 @@ export async function GET(req: NextRequest) {
       `SELECT c.id, c.name, c.code, COALESCE(SUM(t.amount),0) AS total, COUNT(t.id) AS jumlah
          FROM cash_categories c
          LEFT JOIN cash_transactions t
-           ON t.category_id=c.id AND t.status='approved' AND t.type='expense'
+           ON t.category_id=c.id AND ${reportableStatusSql} AND t.type='expense'
           AND t.transaction_date BETWEEN ? AND ?
         WHERE c.type='expense'
         GROUP BY c.id, c.name, c.code
@@ -50,12 +65,12 @@ export async function GET(req: NextRequest) {
       [monthStart, monthEnd]
     ).then(([r]) => r),
     pool.execute<RowDataPacket[]>(
-      `SELECT t.id, t.transaction_number, t.transaction_date, t.type, t.amount,
+      `SELECT t.id, t.transaction_number, t.transaction_date, t.type, t.amount, t.status,
               t.description, t.payment_method, t.reference_number,
               c.name AS category_name
          FROM cash_transactions t
          INNER JOIN cash_categories c ON c.id = t.category_id
-        WHERE t.status='approved' AND t.transaction_date BETWEEN ? AND ?
+        WHERE ${reportableStatusSql} AND t.transaction_date BETWEEN ? AND ?
         ORDER BY t.transaction_date ASC, t.id ASC`,
       [monthStart, monthEnd]
     ).then(([r]) => r),

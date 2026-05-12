@@ -45,7 +45,7 @@ export async function GET() {
       ),
       // 4. Iuran bulan ini (tarif)
       pool.execute<RowDataPacket[]>(`
-        SELECT nominal_anggota, nominal_pengurus
+        SELECT nominal_anggota, nominal_konsumsi_anggota, nominal_pengurus
         FROM iuran_tarif
         WHERE aktif = 1 AND periode_mulai <= ?
         ORDER BY periode_mulai DESC LIMIT 1
@@ -99,10 +99,11 @@ export async function GET() {
     let estimasiIuran = 0;
     if (tarifRow && anggotaRow) {
       const na = Number(tarifRow.nominal_anggota ?? 0);
+      const nka = Number(tarifRow.nominal_konsumsi_anggota ?? 0);
       const np = Number(tarifRow.nominal_pengurus ?? 0);
       const totalAktif = Number(anggotaRow.aktif ?? 0);
       const pengurusAktif = Number(anggotaRow.pengurus_aktif ?? 0);
-      estimasiIuran = totalAktif * na + pengurusAktif * np;
+      estimasiIuran = totalAktif * (na + nka) + pengurusAktif * np;
     }
 
     const upcoming = (upcomingRows as RowDataPacket[]).map((r) => ({

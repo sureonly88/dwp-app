@@ -12,6 +12,7 @@ export interface LaporanRow {
   tanggal_keluar: string | null;
   is_pengurus: boolean;
   iuran_anggota: number;
+  iuran_konsumsi_anggota: number;
   iuran_pengurus: number;
   total: number;
   keterangan: string;
@@ -27,12 +28,13 @@ export interface LaporanFilters {
 
 export interface LaporanResult {
   periode: { bulan: number; tahun: number; awal: string; akhir: string; label: string };
-  tarif: { nominal_anggota: number; nominal_pengurus: number; periode_mulai: string | null } | null;
+  tarif: { nominal_anggota: number; nominal_konsumsi_anggota: number; nominal_pengurus: number; periode_mulai: string | null } | null;
   rows: LaporanRow[];
   summary: {
     total_anggota_aktif: number;
     total_pengurus_aktif: number;
     total_iuran_anggota: number;
+    total_iuran_konsumsi_anggota: number;
     total_iuran_pengurus: number;
     grand_total: number;
   };
@@ -43,7 +45,33 @@ const BULAN_LABELS = [
   "Juli", "Agustus", "September", "Oktober", "November", "Desember",
 ];
 
+let iuranTarifSchemaReady: Promise<void> | null = null;
+
+export function ensureIuranTarifSchema(): Promise<void> {
+  iuranTarifSchemaReady ??= (async () => {
+    const [columns] = await pool.execute<RowDataPacket[]>(
+      `SELECT COLUMN_NAME
+         FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'iuran_tarif'
+          AND COLUMN_NAME = 'nominal_konsumsi_anggota'
+        LIMIT 1`
+    );
+
+    if (columns.length === 0) {
+      await pool.execute(`
+        ALTER TABLE iuran_tarif
+        ADD COLUMN nominal_konsumsi_anggota DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER nominal_anggota
+      `);
+    }
+  })();
+
+  return iuranTarifSchemaReady;
+}
+
 export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanResult> {
+  await ensureIuranTarifSchema();
+
   const bulan = Math.max(1, Math.min(12, Math.trunc(filter.bulan)));
   const tahun = Math.trunc(filter.tahun);
   const periodStart = `${tahun}-${String(bulan).padStart(2, "0")}-01`;
@@ -52,7 +80,7 @@ export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanRe
 
   // Tarif yang berlaku: periode_mulai <= akhir bulan, aktif=1, ambil yang terbaru
   const [tarifRows] = await pool.execute<RowDataPacket[]>(
-    `SELECT nominal_anggota, nominal_pengurus, periode_mulai
+    `SELECT nominal_anggota, nominal_konsumsi_anggota, nominal_pengurus, periode_mulai
      FROM iuran_tarif
      WHERE aktif = 1 AND periode_mulai <= ?
      ORDER BY periode_mulai DESC
@@ -62,6 +90,7 @@ export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanRe
   const tarif = tarifRows[0]
     ? {
         nominal_anggota: Number(tarifRows[0].nominal_anggota),
+        nominal_konsumsi_anggota: Number(tarifRows[0].nominal_konsumsi_anggota ?? 0),
         nominal_pengurus: Number(tarifRows[0].nominal_pengurus),
         periode_mulai: String(tarifRows[0].periode_mulai),
       }
@@ -99,18 +128,21 @@ export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanRe
   );
 
   const nominalAnggota = tarif?.nominal_anggota ?? 0;
+  const nominalKonsumsiAnggota = tarif?.nominal_konsumsi_anggota ?? 0;
   const nominalPengurus = tarif?.nominal_pengurus ?? 0;
 
   let totalAnggotaAktif = 0;
   let totalPengurusAktif = 0;
   let totalIuranAnggota = 0;
+  let totalIuranKonsumsiAnggota = 0;
   let totalIuranPengurus = 0;
 
   const result: LaporanRow[] = rows.map((r) => {
     const isPengurus = r.jabatan !== "Anggota";
     const iuranAnggota = nominalAnggota;
+    const iuranKonsumsiAnggota = nominalKonsumsiAnggota;
     const iuranPengurus = isPengurus ? nominalPengurus : 0;
-    const total = iuranAnggota + iuranPengurus;
+    const total = iuranAnggota + iuranKonsumsiAnggota + iuranPengurus;
     const keluarBulanIni =
       r.tanggal_keluar &&
       String(r.tanggal_keluar) >= periodStart &&
@@ -122,6 +154,7 @@ export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanRe
     totalAnggotaAktif += 1;
     if (isPengurus) totalPengurusAktif += 1;
     totalIuranAnggota += iuranAnggota;
+    totalIuranKonsumsiAnggota += iuranKonsumsiAnggota;
     totalIuranPengurus += iuranPengurus;
 
     return {
@@ -135,6 +168,7 @@ export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanRe
       tanggal_keluar: r.tanggal_keluar ? String(r.tanggal_keluar) : null,
       is_pengurus: isPengurus,
       iuran_anggota: iuranAnggota,
+      iuran_konsumsi_anggota: iuranKonsumsiAnggota,
       iuran_pengurus: iuranPengurus,
       total,
       keterangan,
@@ -155,8 +189,9 @@ export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanRe
       total_anggota_aktif: totalAnggotaAktif,
       total_pengurus_aktif: totalPengurusAktif,
       total_iuran_anggota: totalIuranAnggota,
+      total_iuran_konsumsi_anggota: totalIuranKonsumsiAnggota,
       total_iuran_pengurus: totalIuranPengurus,
-      grand_total: totalIuranAnggota + totalIuranPengurus,
+      grand_total: totalIuranAnggota + totalIuranKonsumsiAnggota + totalIuranPengurus,
     },
   };
 }

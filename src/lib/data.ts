@@ -18,7 +18,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Kegiatan",
     items: [
       { label: "Kegiatan & Presensi", href: "/kegiatan", icon: "event_available" },
-      { label: "Iuran Anggota", href: "/iuran", icon: "account_balance_wallet" },
+      { label: "Iuran Arisan Anggota", href: "/iuran", icon: "account_balance_wallet" },
     ],
   },
   {

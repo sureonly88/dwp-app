@@ -10,11 +10,12 @@ interface Preview {
   periode: { bulan: number; tahun: number; awal: string; akhir: string; label: string };
   summary: {
     total_anggota_aktif: number; total_pengurus_aktif: number;
-    total_iuran_anggota: number; total_iuran_pengurus: number; grand_total: number;
+    total_iuran_anggota: number; total_iuran_konsumsi_anggota: number; total_iuran_pengurus: number; grand_total: number;
   };
-  tarif: { nominal_anggota: number; nominal_pengurus: number } | null;
+  tarif: { nominal_anggota: number; nominal_konsumsi_anggota: number; nominal_pengurus: number } | null;
   posting: {
     iuran_anggota: { amount: number; jumlah_anggota: number; existing: ExistingPost | null };
+    iuran_konsumsi_anggota: { amount: number; jumlah_anggota: number; existing: ExistingPost | null };
     iuran_pengurus: { amount: number; jumlah_pengurus: number; existing: ExistingPost | null };
   };
 }
@@ -49,7 +50,7 @@ export default function PostingIuranPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const post = async (jenis: "anggota" | "pengurus" | "both") => {
+  const post = async (jenis: "anggota" | "konsumsi" | "pengurus" | "both") => {
     if (!confirm(`Posting iuran ${jenis} untuk ${MONTHS[bulan-1]} ${tahun}?`)) return;
     setPosting(true);
     try {
@@ -104,12 +105,13 @@ export default function PostingIuranPage() {
               <div className="bg-surface-container-low p-4 rounded-xl mb-4">
                 <p className="text-label-sm text-on-surface-variant">Periode</p>
                 <p className="font-h3 text-h3 text-on-surface">{data.periode.label}</p>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3 text-body-sm">
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-3 text-body-sm">
                   <div><span className="text-on-surface-variant">Anggota aktif:</span> <b>{data.summary.total_anggota_aktif}</b></div>
                   <div><span className="text-on-surface-variant">Pengurus aktif:</span> <b>{data.summary.total_pengurus_aktif}</b></div>
-                  <div><span className="text-on-surface-variant">Tarif anggota:</span> <b>{data.tarif ? fmt(data.tarif.nominal_anggota) : "-"}</b></div>
+                  <div><span className="text-on-surface-variant">Tarif arisan anggota:</span> <b>{data.tarif ? fmt(data.tarif.nominal_anggota) : "-"}</b></div>
+                  <div><span className="text-on-surface-variant">Tarif konsumsi anggota:</span> <b>{data.tarif ? fmt(data.tarif.nominal_konsumsi_anggota) : "-"}</b></div>
                   <div><span className="text-on-surface-variant">Tarif pengurus:</span> <b>{data.tarif ? fmt(data.tarif.nominal_pengurus) : "-"}</b></div>
-                  <div><span className="text-on-surface-variant">Total iuran:</span> <b>{fmt(data.summary.total_iuran_anggota + data.summary.total_iuran_pengurus)}</b></div>
+                  <div><span className="text-on-surface-variant">Total iuran:</span> <b>{fmt(data.summary.grand_total)}</b></div>
                 </div>
               </div>
 
@@ -120,26 +122,33 @@ export default function PostingIuranPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {(["anggota", "pengurus"] as const).map((jns) => {
-                  const item = jns === "anggota" ? data.posting.iuran_anggota : data.posting.iuran_pengurus;
-                  const jumlah = jns === "anggota" ? data.posting.iuran_anggota.jumlah_anggota : data.posting.iuran_pengurus.jumlah_pengurus;
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {([
+                  { key: "anggota", label: "Arisan Anggota", item: data.posting.iuran_anggota, jumlah: data.posting.iuran_anggota.jumlah_anggota, satuan: "anggota" },
+                  { key: "konsumsi", label: "Konsumsi Anggota", item: data.posting.iuran_konsumsi_anggota, jumlah: data.posting.iuran_konsumsi_anggota.jumlah_anggota, satuan: "anggota" },
+                  { key: "pengurus", label: "Pengurus", item: data.posting.iuran_pengurus, jumlah: data.posting.iuran_pengurus.jumlah_pengurus, satuan: "pengurus" },
+                ] as const).map(({ key, label, item, jumlah, satuan }) => {
                   return (
-                    <Card key={jns} className="p-5 border border-outline-variant" hover={false}>
+                    <Card key={key} className="p-5 border border-outline-variant" hover={false}>
                       <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-label-md text-on-surface uppercase tracking-wide">Iuran {jns}</h4>
+                        <h4 className="font-label-md text-on-surface uppercase tracking-wide">Iuran {label}</h4>
                         {item.existing ? <Badge label={`Sudah diposting (${item.existing.status})`} variant="success" dot /> : <Badge label="Belum diposting" variant="warning" />}
                       </div>
-                      <p className="text-body-sm text-on-surface-variant">{jumlah} {jns}</p>
+                      <p className="text-body-sm text-on-surface-variant">{jumlah} {satuan}</p>
+                      {key === "konsumsi" && (
+                        <p className="text-[11px] text-on-surface-variant mt-1">
+                          Diposting terpisah agar tampil di laporan bulanan kas.
+                        </p>
+                      )}
                       <p className="font-h2 text-h2 text-tertiary mt-1">{fmt(item.amount)}</p>
                       {item.existing && (
                         <p className="text-[11px] text-on-surface-variant mt-2 font-mono">
                           Trx: {item.existing.transaction_number} ({item.existing.transaction_date})
                         </p>
                       )}
-                      <button onClick={() => post(jns)} disabled={posting || !!item.existing || item.amount <= 0}
+                      <button onClick={() => post(key)} disabled={posting || !!item.existing || item.amount <= 0}
                         className="mt-3 w-full px-4 py-2 bg-primary text-on-primary rounded-lg font-label-md hover:bg-primary-container disabled:opacity-40">
-                        {item.existing ? "Sudah diposting" : `Posting Iuran ${jns}`}
+                        {item.existing ? "Sudah diposting" : `Posting Iuran ${label}`}
                       </button>
                     </Card>
                   );
@@ -147,11 +156,11 @@ export default function PostingIuranPage() {
                 <Card className="p-5 border border-outline-variant bg-tertiary-container" hover={false}>
                   <div className="flex items-start justify-between mb-2">
                     <h4 className="font-label-md text-on-tertiary-container uppercase tracking-wide">Total Iuran</h4>
-                    <Badge label="Anggota + Pengurus" variant="info" />
+                    <Badge label="Anggota + Konsumsi + Pengurus" variant="info" />
                   </div>
-                  <p className="text-body-sm text-on-tertiary-container/80">Total iuran anggota ditambah iuran pengurus</p>
+                  <p className="text-body-sm text-on-tertiary-container/80">Total iuran arisan anggota, konsumsi anggota, dan iuran pengurus</p>
                   <p className="font-h2 text-h2 text-on-tertiary-container mt-1">
-                    {fmt(data.summary.total_iuran_anggota + data.summary.total_iuran_pengurus)}
+                    {fmt(data.summary.grand_total)}
                   </p>
                 </Card>
               </div>
@@ -160,7 +169,7 @@ export default function PostingIuranPage() {
                 <button onClick={() => post("both")} disabled={posting}
                   className="px-5 py-2.5 bg-tertiary text-on-tertiary rounded-xl font-label-md inline-flex items-center gap-2 hover:opacity-90 disabled:opacity-40">
                   <span className="material-symbols-outlined text-[18px]">post_add</span>
-                  Posting Semua (Anggota + Pengurus)
+                  Posting Semua (Anggota + Konsumsi + Pengurus)
                 </button>
               </div>
 

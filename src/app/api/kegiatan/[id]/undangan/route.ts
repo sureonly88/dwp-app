@@ -90,7 +90,14 @@ export async function POST(
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
-        "--single-process",
+        "--disable-crash-reporter",
+        "--disable-crashpad",
+        "--no-crash-upload",
+        "--disable-features=Crashpad",
+        "--user-data-dir=/tmp/chromium-user-data",
+        "--data-path=/tmp/chromium-data",
+        "--disk-cache-dir=/tmp/chromium-cache",
+        "--homedir=/tmp",
       ],
     });
     let pdfBuffer: Buffer;

@@ -10,6 +10,7 @@ import Badge from "@/components/ui/Badge";
 interface Tarif {
   id: number;
   nominal_anggota: string | number;
+  nominal_konsumsi_anggota: string | number;
   nominal_pengurus: string | number;
   periode_mulai: string;
   aktif: number;
@@ -27,6 +28,7 @@ interface LaporanRow {
   tanggal_keluar: string | null;
   is_pengurus: boolean;
   iuran_anggota: number;
+  iuran_konsumsi_anggota: number;
   iuran_pengurus: number;
   total: number;
   keterangan: string;
@@ -34,18 +36,27 @@ interface LaporanRow {
 
 interface LaporanResponse {
   periode: { bulan: number; tahun: number; awal: string; akhir: string; label: string };
-  tarif: { nominal_anggota: number; nominal_pengurus: number; periode_mulai: string | null } | null;
+  tarif: { nominal_anggota: number; nominal_konsumsi_anggota: number; nominal_pengurus: number; periode_mulai: string | null } | null;
   rows: LaporanRow[];
   summary: {
     total_anggota_aktif: number;
     total_pengurus_aktif: number;
     total_iuran_anggota: number;
+    total_iuran_konsumsi_anggota: number;
     total_iuran_pengurus: number;
     grand_total: number;
   };
 }
 
 interface UnitKerjaOption { id: number; nama: string; aktif: number }
+
+const hasValidLaporanRows = (value: unknown): value is LaporanResponse => {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    Array.isArray((value as Partial<LaporanResponse>).rows)
+  );
+};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const BULAN_OPTIONS = [
@@ -72,6 +83,7 @@ function TarifModal({
 }) {
   const [form, setForm] = useState({
     nominal_anggota: initial ? String(Number(initial.nominal_anggota)) : "0",
+    nominal_konsumsi_anggota: initial ? String(Number(initial.nominal_konsumsi_anggota ?? 0)) : "0",
     nominal_pengurus: initial ? String(Number(initial.nominal_pengurus)) : "0",
     periode_mulai: initial?.periode_mulai?.slice(0, 10) ?? new Date().toISOString().slice(0, 7) + "-01",
     aktif: initial ? initial.aktif : 1,
@@ -97,6 +109,7 @@ function TarifModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nominal_anggota: Number(form.nominal_anggota),
+          nominal_konsumsi_anggota: Number(form.nominal_konsumsi_anggota),
           nominal_pengurus: Number(form.nominal_pengurus),
           periode_mulai: form.periode_mulai,
           aktif: form.aktif,
@@ -156,10 +169,10 @@ function TarifModal({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-label-md font-semibold text-on-surface">
-                  Nominal Iuran Anggota <span className="text-error">*</span>
+                  Nominal Iuran Arisan Anggota <span className="text-error">*</span>
                 </label>
                 <input
                   type="number"
@@ -168,6 +181,20 @@ function TarifModal({
                   step="500"
                   value={form.nominal_anggota}
                   onChange={(e) => setForm({ ...form, nominal_anggota: e.target.value })}
+                  className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md font-semibold text-on-surface">
+                  Iuran Konsumsi Anggota <span className="text-error">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  step="500"
+                  value={form.nominal_konsumsi_anggota}
+                  onChange={(e) => setForm({ ...form, nominal_konsumsi_anggota: e.target.value })}
                   className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
                 />
               </div>
@@ -271,10 +298,18 @@ export default function IuranPage() {
       if (filterUnit) sp.set("unit", filterUnit);
       if (filterStatus) sp.set("status", filterStatus);
       const r = await fetch(`/api/iuran/laporan?${sp}`);
-      const json: LaporanResponse = await r.json();
+      const json: unknown = await r.json();
+      if (!r.ok || !hasValidLaporanRows(json)) {
+        throw new Error(
+          typeof json === "object" && json && "error" in json && typeof json.error === "string"
+            ? json.error
+            : "Gagal memuat laporan"
+        );
+      }
       setLaporan(json);
-    } catch {
-      showToast("Gagal memuat laporan", "error");
+    } catch (error) {
+      setLaporan(null);
+      showToast((error as Error).message || "Gagal memuat laporan", "error");
     } finally {
       setLoadingLaporan(false);
     }
@@ -359,9 +394,9 @@ export default function IuranPage() {
             <nav className="flex items-center gap-2 text-label-sm text-on-surface-variant mb-2">
               <span>Beranda</span>
               <span className="material-symbols-outlined text-[14px]">chevron_right</span>
-              <span className="text-primary font-semibold">Iuran Anggota</span>
+              <span className="text-primary font-semibold">Iuran Arisan Anggota</span>
             </nav>
-            <h1 className="font-h1 text-h1 text-on-surface mb-2">Iuran Anggota DWP</h1>
+            <h1 className="font-h1 text-h1 text-on-surface mb-2">Iuran Arisan Anggota DWP</h1>
             <p className="text-on-surface-variant text-body-md max-w-2xl">
               Laporan iuran bulanan otomatis berbasis data anggota aktif. Pengurus dikenakan iuran tambahan.
             </p>
@@ -468,7 +503,10 @@ export default function IuranPage() {
                 <div className="mt-4 pt-4 border-t border-outline-variant flex flex-wrap items-center gap-x-6 gap-y-2 text-body-sm">
                   <span className="text-on-surface-variant">Tarif berlaku:</span>
                   <span className="text-on-surface">
-                    Anggota <strong>{formatRp(laporan.tarif.nominal_anggota)}</strong>
+                    Arisan Anggota <strong>{formatRp(laporan.tarif.nominal_anggota)}</strong>
+                  </span>
+                  <span className="text-on-surface">
+                    Konsumsi Anggota <strong>{formatRp(laporan.tarif.nominal_konsumsi_anggota)}</strong>
                   </span>
                   <span className="text-on-surface">
                     Pengurus <strong>{formatRp(laporan.tarif.nominal_pengurus)}</strong>
@@ -487,13 +525,15 @@ export default function IuranPage() {
             </Card>
 
             {laporan && (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
                 <SummaryCard icon="groups" iconBg="bg-primary-fixed" iconColor="text-primary"
                   label="Anggota Aktif" value={String(laporan.summary.total_anggota_aktif)} />
                 <SummaryCard icon="shield_person" iconBg="bg-secondary-fixed" iconColor="text-secondary"
                   label="Pengurus Aktif" value={String(laporan.summary.total_pengurus_aktif)} />
                 <SummaryCard icon="payments" iconBg="bg-tertiary-fixed" iconColor="text-tertiary"
-                  label="Total Iuran Anggota" value={formatRp(laporan.summary.total_iuran_anggota)} />
+                  label="Total Iuran Arisan Anggota" value={formatRp(laporan.summary.total_iuran_anggota)} />
+                <SummaryCard icon="restaurant" iconBg="bg-tertiary-container" iconColor="text-tertiary"
+                  label="Total Konsumsi Anggota" value={formatRp(laporan.summary.total_iuran_konsumsi_anggota)} />
                 <SummaryCard icon="account_balance_wallet" iconBg="bg-secondary-container" iconColor="text-secondary"
                   label="Total Iuran Pengurus" value={formatRp(laporan.summary.total_iuran_pengurus)} />
                 <SummaryCard icon="paid" iconBg="bg-primary" iconColor="text-on-primary"
@@ -526,7 +566,8 @@ export default function IuranPage() {
                       <th className="px-4 py-3 text-left">Unit Kerja</th>
                       <th className="px-4 py-3 text-left">Jabatan</th>
                       <th className="px-4 py-3 text-center">Pengurus</th>
-                      <th className="px-4 py-3 text-right">Iuran Anggota</th>
+                      <th className="px-4 py-3 text-right">Iuran Arisan Anggota</th>
+                      <th className="px-4 py-3 text-right">Konsumsi</th>
                       <th className="px-4 py-3 text-right">Iuran Pengurus</th>
                       <th className="px-4 py-3 text-right">Total</th>
                       <th className="px-4 py-3 text-left">Keterangan</th>
@@ -534,10 +575,10 @@ export default function IuranPage() {
                   </thead>
                   <tbody className="divide-y divide-outline-variant">
                     {loadingLaporan && (
-                      <tr><td colSpan={9} className="px-4 py-10 text-center text-on-surface-variant">Memuat...</td></tr>
+                      <tr><td colSpan={10} className="px-4 py-10 text-center text-on-surface-variant">Memuat...</td></tr>
                     )}
                     {!loadingLaporan && laporan && laporan.rows.length === 0 && (
-                      <tr><td colSpan={9} className="px-4 py-10 text-center text-on-surface-variant">
+                      <tr><td colSpan={10} className="px-4 py-10 text-center text-on-surface-variant">
                         Tidak ada anggota aktif pada periode ini.
                       </td></tr>
                     )}
@@ -557,6 +598,9 @@ export default function IuranPage() {
                         </td>
                         <td className="px-4 py-3 text-right text-on-surface tabular-nums">
                           {formatRp(r.iuran_anggota)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-on-surface tabular-nums">
+                          {r.iuran_konsumsi_anggota > 0 ? formatRp(r.iuran_konsumsi_anggota) : <span className="text-on-surface-variant">—</span>}
                         </td>
                         <td className="px-4 py-3 text-right text-on-surface tabular-nums">
                           {r.iuran_pengurus > 0 ? formatRp(r.iuran_pengurus) : <span className="text-on-surface-variant">—</span>}
@@ -581,6 +625,7 @@ export default function IuranPage() {
                       <tr>
                         <td colSpan={5} className="px-4 py-3 text-right text-on-surface-variant uppercase text-label-sm tracking-wider">Total</td>
                         <td className="px-4 py-3 text-right text-on-surface tabular-nums">{formatRp(laporan.summary.total_iuran_anggota)}</td>
+                        <td className="px-4 py-3 text-right text-on-surface tabular-nums">{formatRp(laporan.summary.total_iuran_konsumsi_anggota)}</td>
                         <td className="px-4 py-3 text-right text-on-surface tabular-nums">{formatRp(laporan.summary.total_iuran_pengurus)}</td>
                         <td className="px-4 py-3 text-right text-primary tabular-nums">{formatRp(laporan.summary.grand_total)}</td>
                         <td></td>
@@ -606,7 +651,8 @@ export default function IuranPage() {
                 <thead className="bg-surface-container text-on-surface-variant text-label-sm uppercase tracking-wider">
                   <tr>
                     <th className="px-4 py-3 text-left">Periode Mulai</th>
-                    <th className="px-4 py-3 text-right">Iuran Anggota</th>
+                    <th className="px-4 py-3 text-right">Iuran Arisan Anggota</th>
+                    <th className="px-4 py-3 text-right">Konsumsi Anggota</th>
                     <th className="px-4 py-3 text-right">Iuran Pengurus</th>
                     <th className="px-4 py-3 text-left">Status</th>
                     <th className="px-4 py-3 text-left">Catatan</th>
@@ -615,10 +661,10 @@ export default function IuranPage() {
                 </thead>
                 <tbody className="divide-y divide-outline-variant">
                   {loadingTarif && (
-                    <tr><td colSpan={6} className="px-4 py-10 text-center text-on-surface-variant">Memuat...</td></tr>
+                    <tr><td colSpan={7} className="px-4 py-10 text-center text-on-surface-variant">Memuat...</td></tr>
                   )}
                   {!loadingTarif && tarifList.length === 0 && (
-                    <tr><td colSpan={6} className="px-4 py-10 text-center text-on-surface-variant">
+                    <tr><td colSpan={7} className="px-4 py-10 text-center text-on-surface-variant">
                       Belum ada tarif. Klik &ldquo;Tambah Tarif&rdquo; untuk membuat.
                     </td></tr>
                   )}
@@ -626,6 +672,7 @@ export default function IuranPage() {
                     <tr key={t.id} className="hover:bg-surface-container/50">
                       <td className="px-4 py-3 font-semibold text-on-surface">{t.periode_mulai.slice(0, 7)}</td>
                       <td className="px-4 py-3 text-right text-on-surface tabular-nums">{formatRp(Number(t.nominal_anggota))}</td>
+                      <td className="px-4 py-3 text-right text-on-surface tabular-nums">{formatRp(Number(t.nominal_konsumsi_anggota ?? 0))}</td>
                       <td className="px-4 py-3 text-right text-on-surface tabular-nums">{formatRp(Number(t.nominal_pengurus))}</td>
                       <td className="px-4 py-3">
                         {t.aktif ? <Badge label="Aktif" variant="success" /> : <Badge label="Nonaktif" variant="neutral" />}

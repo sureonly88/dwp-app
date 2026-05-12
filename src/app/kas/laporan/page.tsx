@@ -58,7 +58,7 @@ export default function LaporanKasPage() {
     lines.push(["Kategori", "Total"]);
     data.rekap_pengeluaran.forEach((r) => lines.push([r.name, String(r.total)]));
     lines.push([""]);
-    lines.push(["DETAIL TRANSAKSI (DISETUJUI)"]);
+    lines.push(["DETAIL TRANSAKSI (DISETUJUI + POSTING IURAN)"]);
     lines.push(["Tanggal", "Nomor", "Tipe", "Kategori", "Deskripsi", "Nominal"]);
     data.transaksi.forEach((t) => lines.push([t.transaction_date, t.transaction_number, t.type, t.category_name, t.description ?? "", String(t.amount)]));
     const csv = lines.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -74,7 +74,7 @@ export default function LaporanKasPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 className="font-h2 text-h2 text-primary">Laporan Kas Bulanan</h2>
-            <p className="text-body-sm text-on-surface-variant">Ringkasan keuangan periode bulanan (transaksi disetujui).</p>
+            <p className="text-body-sm text-on-surface-variant">Ringkasan keuangan periode bulanan (transaksi disetujui dan posting iuran otomatis).</p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => window.print()} className="px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl font-label-md inline-flex items-center gap-2 hover:bg-surface-container">
@@ -163,7 +163,7 @@ export default function LaporanKasPage() {
 
             <Card>
               <div className="p-4 border-b border-outline-variant">
-                <h4 className="font-label-md text-on-surface uppercase tracking-wide">Detail Transaksi Disetujui</h4>
+                <h4 className="font-label-md text-on-surface uppercase tracking-wide">Detail Transaksi Disetujui + Posting Iuran</h4>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">

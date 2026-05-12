@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
   const header = [
     "No", "Nama", "NIP", "Unit Kerja", "Jabatan", "Pengurus",
-    "Status", "Iuran Anggota", "Iuran Pengurus", "Total", "Keterangan",
+    "Status", "Iuran Arisan Anggota", "Iuran Konsumsi Anggota", "Iuran Pengurus", "Total", "Keterangan",
   ];
 
   const lines = [header.join(",")];
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
       r.is_pengurus ? "Ya" : "Tidak",
       csvCell(r.status),
       r.iuran_anggota,
+      r.iuran_konsumsi_anggota,
       r.iuran_pengurus,
       r.total,
       csvCell(r.keterangan),
@@ -54,7 +55,8 @@ export async function GET(req: NextRequest) {
   lines.push(`Periode,${csvCell(laporan.periode.label)}`);
   lines.push(`Total Anggota Aktif,${laporan.summary.total_anggota_aktif}`);
   lines.push(`Total Pengurus Aktif,${laporan.summary.total_pengurus_aktif}`);
-  lines.push(`Total Iuran Anggota,${laporan.summary.total_iuran_anggota}`);
+  lines.push(`Total Iuran Arisan Anggota,${laporan.summary.total_iuran_anggota}`);
+  lines.push(`Total Iuran Konsumsi Anggota,${laporan.summary.total_iuran_konsumsi_anggota}`);
   lines.push(`Total Iuran Pengurus,${laporan.summary.total_iuran_pengurus}`);
   lines.push(`Grand Total,${laporan.summary.grand_total}`);
 

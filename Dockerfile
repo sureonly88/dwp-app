@@ -49,6 +49,8 @@ ENV HOSTNAME=0.0.0.0
 # Puppeteer: gunakan Chromium dari sistem, bukan yang di-download npm
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV XDG_CONFIG_HOME=/tmp/.chromium
+ENV XDG_CACHE_HOME=/tmp/.chromium
 
 # Non-root user untuk keamanan
 RUN groupadd --system --gid 1001 nodejs \

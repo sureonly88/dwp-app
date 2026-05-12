@@ -89,7 +89,8 @@ CREATE TABLE IF NOT EXISTS sale_items (
 
 -- 4. Seed kategori default (idempotent) --------------------------------------
 INSERT IGNORE INTO cash_categories (code, name, type, is_system, description) VALUES
-  ('IURAN_ANGGOTA',     'Iuran Anggota',          'income',  1, 'Posting rekap iuran anggota dari modul Iuran'),
+  ('IURAN_ANGGOTA',     'Iuran Arisan Anggota',   'income',  1, 'Posting rekap iuran arisan anggota dari modul Iuran'),
+  ('IURAN_KONSUMSI_ANGGOTA', 'Iuran Konsumsi Anggota', 'income', 1, 'Posting rekap iuran konsumsi anggota dari modul Iuran'),
   ('IURAN_PENGURUS',    'Iuran Pengurus',         'income',  1, 'Posting rekap iuran pengurus dari modul Iuran'),
   ('PENJUALAN_BARANG',  'Penjualan Barang',       'income',  1, 'Otomatis dari modul Penjualan'),
   ('DONASI',            'Donasi',                 'income',  0, 'Sumbangan dari donatur'),
