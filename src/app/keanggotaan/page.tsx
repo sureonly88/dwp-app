@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
 import Card from "@/components/ui/Card";
@@ -37,6 +37,15 @@ interface UnitKerjaOption {
   aktif: number;
 }
 
+interface ImportResponse {
+  message?: string;
+  error?: string;
+  inserted?: number;
+  updated?: number;
+  skipped?: number;
+  errors?: { row: number; message: string }[];
+}
+
 const LIMIT = 10;
 
 function getInitials(nama: string) {
@@ -54,10 +63,12 @@ function formatJoinDate(dateStr: string) {
 }
 
 export default function KeanggotaanPage() {
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [data, setData] = useState<Anggota[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -146,6 +157,53 @@ export default function KeanggotaanPage() {
     } finally {
       setDeleteLoading(false);
     }
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/anggota/import", {
+        method: "POST",
+        body: formData,
+      });
+      const json: ImportResponse = await res.json();
+
+      if (!res.ok) {
+        const detail = json.errors?.length ? ` (${json.errors.slice(0, 3).map((err) => `baris ${err.row}: ${err.message}`).join("; ")})` : "";
+        throw new Error(`${json.error ?? "Gagal mengimport data anggota"}${detail}`);
+      }
+
+      const inserted = json.inserted ?? 0;
+      const updated = json.updated ?? 0;
+      const skipped = json.skipped ?? 0;
+      showToast(`Import selesai: ${inserted} ditambah, ${updated} diperbarui${skipped ? `, ${skipped} dilewati` : ""}`);
+      setPage(1);
+      fetchData();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Gagal mengimport data anggota", "error");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const downloadImportTemplate = () => {
+    const header = ["nama", "nip", "jabatan", "unit_kerja", "status", "no_hp", "email", "alamat", "join_date", "tanggal_keluar"];
+    const sample = ["Ibu Siti Aminah", "198205122010012001", "Anggota", "Sekretariat", "Aktif", "08123456789", "siti@example.com", "Alamat lengkap", new Date().toISOString().slice(0, 10), ""];
+    const csv = [header, sample].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "template-import-anggota.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const totalPages = Math.ceil(total / LIMIT);
@@ -257,6 +315,19 @@ export default function KeanggotaanPage() {
             )}
           </div>
           <div className="col-span-2 lg:col-span-1 flex flex-wrap items-center justify-start lg:justify-end gap-3">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={handleImportFile}
+            />
+            <Button variant="outline" icon="upload_file" disabled={importing} onClick={() => importInputRef.current?.click()}>
+              {importing ? "Mengimport..." : "Import Excel"}
+            </Button>
+            <Button variant="ghost" icon="description" onClick={downloadImportTemplate}>
+              Template
+            </Button>
             <Button variant="outline" icon="download">Ekspor Data</Button>
             <Button icon="person_add" size="lg" onClick={() => setModal("add")}>
               Tambah Anggota
