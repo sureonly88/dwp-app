@@ -30,19 +30,17 @@ interface Winner {
   waktu: string;
 }
 
+interface AnggotaOption {
+  id: number;
+  nama: string;
+}
+
 type SpinState = "idle" | "running" | "stopping";
 
 function formatTanggal(s: string) {
   if (!s) return "-";
   return new Date(s).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
 }
-
-const ROLL_NAMES = [
-  "Ibu Siti Aminah", "Ibu Dewi Rahayu", "Ibu Lusi Kurniawati", "Ibu Farida Ratnasari",
-  "Ibu Endang Sri", "Ibu Nurhasanah", "Ibu Wahyuni P.", "Ibu Riana Setyawati",
-  "Ibu Mardiana", "Ibu Suryati", "Ibu Herlina W.", "Ibu Yuliana Sari",
-  "Ibu Ratna Dewi", "Ibu Sri Mulyani", "Ibu Fitri Handayani",
-];
 
 const CONFETTI_COLORS = [
   "#f43f5e", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6",
@@ -86,6 +84,7 @@ export default function DoorprizePage() {
   const [spinState, setSpinState] = useState<SpinState>("idle");
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [lastWinner, setLastWinner] = useState<{ id: number; nama: string; unit: string; jabatan: string } | null>(null);
+  const [rollNames, setRollNames] = useState<string[]>([]);
   const rollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const rollIdxRef = useRef(0);
   const slowingRef = useRef(false);
@@ -109,7 +108,25 @@ export default function DoorprizePage() {
     }
   }, []);
 
-  useEffect(() => { loadKegiatan(); }, [loadKegiatan]);
+  const loadRollNames = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/anggota?status=Aktif&limit=100`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      const names = (json.data ?? [])
+        .map((a: AnggotaOption) => a.nama)
+        .filter((nama: string) => nama.trim().length > 0);
+      setRollNames(names);
+    } catch {
+      setRollNames([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat data awal halaman dari API.
+    loadKegiatan();
+    loadRollNames();
+  }, [loadKegiatan, loadRollNames]);
 
   const loadDetail = useCallback(async (kegiatanId: number) => {
     setLoading(true);
@@ -130,6 +147,7 @@ export default function DoorprizePage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat detail saat kegiatan dipilih.
     if (selectedId !== null) loadDetail(selectedId);
   }, [selectedId, loadDetail]);
 
@@ -319,6 +337,10 @@ export default function DoorprizePage() {
       return;
     }
     if (undiError) return;
+    if (rollNames.length === 0) {
+      setUndiError("Data nama anggota belum tersedia untuk animasi pengundian.");
+      return;
+    }
     setUndiError(null);
     const ac = getAudioCtx();
     if (ac) ac.resume().catch(() => {});
@@ -327,8 +349,8 @@ export default function DoorprizePage() {
     setLastWinner(null);
     rollIdxRef.current = 0;
     rollIntervalRef.current = setInterval(() => {
-      rollIdxRef.current = (rollIdxRef.current + 1) % ROLL_NAMES.length;
-      setDisplayName(ROLL_NAMES[rollIdxRef.current]);
+      rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
+      setDisplayName(rollNames[rollIdxRef.current]);
       playHihat();
     }, 80);
   };
@@ -346,9 +368,13 @@ export default function DoorprizePage() {
       if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
       delay = Math.min(delay * 1.35, 400);
       rollIntervalRef.current = setInterval(() => {
-        rollIdxRef.current = (rollIdxRef.current + 1) % ROLL_NAMES.length;
-        setDisplayName(ROLL_NAMES[rollIdxRef.current]);
-        delay < 150 ? playHihat() : playSnare();
+        rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
+        setDisplayName(rollNames[rollIdxRef.current]);
+        if (delay < 150) {
+          playHihat();
+        } else {
+          playSnare();
+        }
       }, delay);
       if (delay < 390) setTimeout(slowDown, delay * 3);
     };

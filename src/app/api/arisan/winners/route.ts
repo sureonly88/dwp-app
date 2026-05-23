@@ -2,24 +2,32 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
 
-// GET /api/arisan/winners?tahun=
-// Returns all arisan winners across all events, optionally filtered by year
+// GET /api/arisan/winners?tahun=&bulan=
+// Returns all arisan winners across all events, optionally filtered by year/month
 export async function GET(req: NextRequest) {
   try {
-    const tahun = new URL(req.url).searchParams.get("tahun");
+    const searchParams = new URL(req.url).searchParams;
+    const tahun = searchParams.get("tahun");
+    const bulan = searchParams.get("bulan");
 
     const params: (string | number)[] = [];
-    let whereClause = "";
+    const whereConditions: string[] = [];
     if (tahun && !isNaN(Number(tahun))) {
-      whereClause = "WHERE YEAR(k.tanggal) = ?";
+      whereConditions.push("YEAR(k.tanggal) = ?");
       params.push(Number(tahun));
     }
+    if (bulan && !isNaN(Number(bulan)) && Number(bulan) >= 1 && Number(bulan) <= 12) {
+      whereConditions.push("MONTH(k.tanggal) = ?");
+      params.push(Number(bulan));
+    }
+
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : "";
 
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT aw.id, aw.urutan, aw.waktu,
               a.id AS anggota_id, a.nama, a.nip, a.jabatan, a.unit_kerja,
               k.id AS kegiatan_id, k.judul AS kegiatan_judul,
-              k.tanggal AS kegiatan_tanggal, k.lokasi,
+              k.tanggal AS kegiatan_tanggal, MONTH(k.tanggal) AS kegiatan_bulan, k.lokasi,
               s.nominal_per_orang
        FROM arisan_winners aw
        JOIN anggota a ON a.id = aw.anggota_id

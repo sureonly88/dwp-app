@@ -44,8 +44,18 @@ interface AllWinner {
   kegiatan_id: number;
   kegiatan_judul: string;
   kegiatan_tanggal: string;
+  kegiatan_bulan: number;
   lokasi: string | null;
   nominal_per_orang: string | null;
+}
+
+interface AnggotaOption {
+  id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  status: "Aktif" | "Non-Aktif" | "Cuti";
 }
 
 type SpinState = "idle" | "running" | "stopping";
@@ -54,17 +64,14 @@ function formatTanggal(s: string) {
   if (!s) return "-";
   return new Date(s).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
 }
+function formatBulan(month: number | string) {
+  const monthNumber = Number(month);
+  if (!monthNumber || monthNumber < 1 || monthNumber > 12) return "-";
+  return new Date(2000, monthNumber - 1, 1).toLocaleDateString("id-ID", { month: "long" });
+}
 function formatRupiah(n: number) {
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
 }
-
-// Dummy names for rolling animation before winner is revealed
-const ROLL_NAMES = [
-  "Ibu Siti Aminah", "Ibu Dewi Rahayu", "Ibu Lusi Kurniawati", "Ibu Farida Ratnasari",
-  "Ibu Endang Sri", "Ibu Nurhasanah", "Ibu Wahyuni P.", "Ibu Riana Setyawati",
-  "Ibu Mardiana", "Ibu Suryati", "Ibu Herlina W.", "Ibu Yuliana Sari",
-  "Ibu Ratna Dewi", "Ibu Sri Mulyani", "Ibu Fitri Handayani",
-];
 
 const CONFETTI_COLORS = [
   "#f43f5e", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6",
@@ -93,6 +100,21 @@ const INPUT_CLS =
 const SELECT_CLS =
   "w-full appearance-none border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11";
 
+const MONTH_OPTIONS = [
+  { value: "1", label: "Januari" },
+  { value: "2", label: "Februari" },
+  { value: "3", label: "Maret" },
+  { value: "4", label: "April" },
+  { value: "5", label: "Mei" },
+  { value: "6", label: "Juni" },
+  { value: "7", label: "Juli" },
+  { value: "8", label: "Agustus" },
+  { value: "9", label: "September" },
+  { value: "10", label: "Oktober" },
+  { value: "11", label: "November" },
+  { value: "12", label: "Desember" },
+];
+
 export default function ArisanPage() {
   const [kegiatanList, setKegiatanList] = useState<Kegiatan[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -107,6 +129,7 @@ export default function ArisanPage() {
   const [spinState, setSpinState] = useState<SpinState>("idle");
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [lastWinner, setLastWinner] = useState<ArisanWinner | null>(null);
+  const [rollNames, setRollNames] = useState<string[]>([]);
   const rollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const rollIdxRef = useRef(0);
   const slowingRef = useRef(false);
@@ -131,11 +154,24 @@ export default function ArisanPage() {
   };
 
   // Page tabs
-  const [pageTab, setPageTab] = useState<"per_kegiatan" | "riwayat">("per_kegiatan");
+  const [pageTab, setPageTab] = useState<"per_kegiatan" | "manual" | "riwayat">("per_kegiatan");
   const [allWinners, setAllWinners] = useState<AllWinner[]>([]);
   const [allWinnersYears, setAllWinnersYears] = useState<number[]>([]);
   const [allWinnersYear, setAllWinnersYear] = useState<string>(String(new Date().getFullYear()));
+  const [allWinnersMonth, setAllWinnersMonth] = useState<string>("");
   const [allWinnersLoading, setAllWinnersLoading] = useState(false);
+
+  // Manual input
+  const [anggotaOptions, setAnggotaOptions] = useState<AnggotaOption[]>([]);
+  const [manualKegiatanId, setManualKegiatanId] = useState("");
+  const [manualAnggotaId, setManualAnggotaId] = useState("");
+  const [manualSearch, setManualSearch] = useState("");
+  const [manualSearchOpen, setManualSearchOpen] = useState(false);
+  const [manualSearchLoading, setManualSearchLoading] = useState(false);
+  const [manualDuplicateChecking, setManualDuplicateChecking] = useState(false);
+  const [manualDuplicateMessage, setManualDuplicateMessage] = useState<string | null>(null);
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
 
   // ---- data fetching ----
   const loadKegiatan = useCallback(async () => {
@@ -148,12 +184,102 @@ export default function ArisanPage() {
     }
   }, []);
 
-  useEffect(() => { loadKegiatan(); }, [loadKegiatan]);
+  const loadRollNames = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/anggota?status=Aktif&limit=100`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      const names = (json.data ?? [])
+        .map((a: AnggotaOption) => a.nama)
+        .filter((nama: string) => nama.trim().length > 0);
+      setRollNames(names);
+    } catch {
+      setRollNames([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat data awal halaman dari API.
+    loadKegiatan();
+    loadRollNames();
+  }, [loadKegiatan, loadRollNames]);
+
+  const loadAnggotaOptions = useCallback(async (search = "") => {
+    try {
+      setManualSearchLoading(true);
+      const params = new URLSearchParams({ status: "Aktif", limit: "20" });
+      if (search.trim()) params.set("search", search.trim());
+      const res = await fetch(`/api/anggota?${params.toString()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setAnggotaOptions(json.data ?? []);
+    } catch {
+      showToast("Gagal memuat daftar anggota", "error");
+    } finally {
+      setManualSearchLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pageTab === "manual" && anggotaOptions.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat opsi anggota saat tab manual dibuka.
+      loadAnggotaOptions();
+    }
+  }, [pageTab, anggotaOptions.length, loadAnggotaOptions]);
+
+  useEffect(() => {
+    if (pageTab !== "manual") return;
+    const timer = setTimeout(() => {
+      loadAnggotaOptions(manualSearch);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [pageTab, manualSearch, loadAnggotaOptions]);
+
+  useEffect(() => {
+    if (pageTab !== "manual" || !manualKegiatanId || !manualAnggotaId) {
+      return;
+    }
+
+    const selectedKegiatan = kegiatanList.find((k) => k.id === Number(manualKegiatanId));
+    const selectedYear = selectedKegiatan ? new Date(selectedKegiatan.tanggal).getFullYear() : null;
+    if (!selectedYear || Number.isNaN(selectedYear)) {
+      return;
+    }
+
+    let cancelled = false;
+    const checkDuplicate = async () => {
+      setManualDuplicateChecking(true);
+      setManualDuplicateMessage(null);
+      try {
+        const res = await fetch(`/api/arisan/winners?tahun=${selectedYear}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error);
+        if (cancelled) return;
+
+        const existing = (json.data ?? []).find((w: AllWinner) => w.anggota_id === Number(manualAnggotaId));
+        if (existing) {
+          setManualDuplicateMessage(
+            `Anggota ini sudah menerima arisan pada tahun ${selectedYear} di kegiatan "${existing.kegiatan_judul}". Tidak dapat diinput ulang.`,
+          );
+        }
+      } catch {
+        if (!cancelled) setManualDuplicateMessage(null);
+      } finally {
+        if (!cancelled) setManualDuplicateChecking(false);
+      }
+    };
+
+    checkDuplicate();
+    return () => { cancelled = true; };
+  }, [pageTab, manualKegiatanId, manualAnggotaId, kegiatanList]);
 
   const fetchAllWinners = useCallback(async () => {
     setAllWinnersLoading(true);
     try {
-      const params = allWinnersYear ? `?tahun=${allWinnersYear}` : "";
+      const searchParams = new URLSearchParams();
+      if (allWinnersYear) searchParams.set("tahun", allWinnersYear);
+      if (allWinnersMonth) searchParams.set("bulan", allWinnersMonth);
+      const params = searchParams.toString() ? `?${searchParams.toString()}` : "";
       const res = await fetch(`/api/arisan/winners${params}`);
       const json = await res.json();
       setAllWinners(json.data ?? []);
@@ -163,9 +289,14 @@ export default function ArisanPage() {
     } finally {
       setAllWinnersLoading(false);
     }
-  }, [allWinnersYear]);
+  }, [allWinnersYear, allWinnersMonth]);
 
-  useEffect(() => { if (pageTab === "riwayat") fetchAllWinners(); }, [pageTab, fetchAllWinners]);
+  useEffect(() => {
+    if (pageTab === "riwayat") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat ulang riwayat saat filter/tab berubah.
+      fetchAllWinners();
+    }
+  }, [pageTab, fetchAllWinners]);
 
   const loadDetail = useCallback(async (kegiatanId: number) => {
     setLoadingDetail(true);
@@ -189,6 +320,7 @@ export default function ArisanPage() {
 
   useEffect(() => {
     if (selectedId !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset state undian saat kegiatan berubah.
       setDisplayName(null);
       setLastWinner(null);
       setSpinState("idle");
@@ -362,6 +494,10 @@ export default function ArisanPage() {
       return;
     }
     if (undiError) return;
+    if (rollNames.length === 0) {
+      setUndiError("Data nama anggota belum tersedia untuk animasi pengundian.");
+      return;
+    }
     setUndiError(null);
     const ac = getAudioCtx();
     if (ac) ac.resume().catch(() => {});
@@ -370,8 +506,8 @@ export default function ArisanPage() {
     setLastWinner(null);
     rollIdxRef.current = 0;
     rollIntervalRef.current = setInterval(() => {
-      rollIdxRef.current = (rollIdxRef.current + 1) % ROLL_NAMES.length;
-      setDisplayName(ROLL_NAMES[rollIdxRef.current]);
+      rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
+      setDisplayName(rollNames[rollIdxRef.current]);
       playHihat();
     }, 80);
   };
@@ -391,9 +527,13 @@ export default function ArisanPage() {
       if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
       delay = Math.min(delay * 1.35, 400);
       rollIntervalRef.current = setInterval(() => {
-        rollIdxRef.current = (rollIdxRef.current + 1) % ROLL_NAMES.length;
-        setDisplayName(ROLL_NAMES[rollIdxRef.current]);
-        delay < 150 ? playHihat() : playSnare();
+        rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
+        setDisplayName(rollNames[rollIdxRef.current]);
+        if (delay < 150) {
+          playHihat();
+        } else {
+          playSnare();
+        }
       }, delay);
       if (delay < 390) setTimeout(slowDown, delay * 3);
     };
@@ -468,6 +608,41 @@ export default function ArisanPage() {
       setJumlahPemenang("1");
     } catch {
       showToast("Gagal mereset", "error");
+    }
+  };
+
+  const handleManualSubmit = async () => {
+    setManualError(null);
+    if (!manualKegiatanId || !manualAnggotaId) {
+      setManualError("Pilih kegiatan dan anggota terlebih dahulu.");
+      return;
+    }
+    if (manualDuplicateMessage) {
+      setManualError(manualDuplicateMessage);
+      return;
+    }
+
+    setManualSaving(true);
+    try {
+      const res = await fetch(`/api/arisan/${manualKegiatanId}/winner`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ anggota_id: Number(manualAnggotaId) }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Gagal mencatat penerima arisan");
+
+      showToast(`Penerima arisan dicatat: ${json.winner.nama}`);
+      setManualAnggotaId("");
+      setManualSearch("");
+      setManualSearchOpen(false);
+      setManualDuplicateMessage(null);
+      if (selectedId === Number(manualKegiatanId)) loadDetail(Number(manualKegiatanId));
+      if (pageTab === "riwayat") fetchAllWinners();
+    } catch (e) {
+      setManualError((e as Error).message ?? "Gagal mencatat penerima arisan");
+    } finally {
+      setManualSaving(false);
     }
   };
 
@@ -590,6 +765,13 @@ export default function ArisanPage() {
             >
               <span className="material-symbols-outlined text-[18px]">savings</span>
               Per Kegiatan
+            </button>
+            <button
+              onClick={() => setPageTab("manual")}
+              className={`flex items-center gap-2 px-4 py-2.5 text-label-md transition-colors ${pageTab === "manual" ? "bg-primary text-on-primary" : "bg-surface text-on-surface-variant hover:bg-surface-container"}`}
+            >
+              <span className="material-symbols-outlined text-[18px]">edit_note</span>
+              Input Manual
             </button>
             <button
               onClick={() => setPageTab("riwayat")}
@@ -1017,7 +1199,168 @@ export default function ArisanPage() {
             </Card>
           </>
         )}
-        </>) : (
+        </>) : pageTab === "manual" ? (
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px] gap-6">
+            <Card className="p-6">
+              <div className="flex items-start gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-primary-fixed flex items-center justify-center text-primary shrink-0">
+                  <span className="material-symbols-outlined material-symbols-filled text-[26px]">edit_note</span>
+                </div>
+                <div>
+                  <h3 className="font-h3 text-[22px] text-on-surface">Input Manual Penerima Arisan</h3>
+                  <p className="text-body-sm text-on-surface-variant mt-1 max-w-2xl">
+                    Gunakan menu ini untuk mencatat anggota DWP yang sudah menerima arisan tanpa menjalankan proses undian.
+                    Data akan masuk ke riwayat pemenang arisan dan tetap divalidasi agar tidak dobel dalam tahun yang sama.
+                  </p>
+                </div>
+              </div>
+
+              {manualError && (
+                <div className="mb-5 p-3 bg-error-container text-error rounded-lg text-body-sm flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[18px] mt-0.5">error</span>
+                  <span>{manualError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="text-label-sm text-on-surface-variant block mb-1.5">Kegiatan Arisan</label>
+                  <div className="relative">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">event</span>
+                    <select
+                      value={manualKegiatanId}
+                      onChange={(e) => setManualKegiatanId(e.target.value)}
+                      className={`${SELECT_CLS} pl-10 pr-10`}
+                    >
+                      <option value="">— Pilih kegiatan —</option>
+                      {kegiatanList.map((k) => (
+                        <option key={k.id} value={k.id}>
+                          {formatTanggal(k.tanggal)} · {k.judul}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">expand_more</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-label-sm text-on-surface-variant block mb-1.5">Pencarian Penerima berdasarkan NIP atau Nama</label>
+                  <div className="relative">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">search</span>
+                    <input
+                      type="search"
+                      value={manualSearch}
+                      onChange={(e) => {
+                        setManualSearch(e.target.value);
+                        setManualAnggotaId("");
+                        setManualSearchOpen(true);
+                      }}
+                      onFocus={() => setManualSearchOpen(true)}
+                      placeholder="Ketik NIP atau nama anggota..."
+                      className={`${INPUT_CLS} pl-10 pr-10`}
+                    />
+                    {manualSearchLoading && (
+                      <span className="material-symbols-outlined animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-primary text-[18px]">progress_activity</span>
+                    )}
+                  </div>
+                  {manualSearchOpen && !manualAnggotaId && (
+                    <div className="mt-2 rounded-xl border border-outline-variant bg-surface-container-lowest overflow-hidden max-h-56 overflow-y-auto">
+                      {anggotaOptions.length === 0 ? (
+                        <div className="px-4 py-3 text-body-sm text-on-surface-variant">
+                          {manualSearchLoading ? "Mencari anggota..." : "Tidak ada anggota aktif yang cocok."}
+                        </div>
+                      ) : (
+                        anggotaOptions.map((a) => (
+                          <button
+                            type="button"
+                            key={a.id}
+                            onClick={() => {
+                              setManualAnggotaId(String(a.id));
+                              setManualSearch(`${a.nama}${a.nip ? ` · ${a.nip}` : ""}`);
+                              setManualSearchOpen(false);
+                              setManualDuplicateMessage(null);
+                            }}
+                            className="w-full px-4 py-3 text-left flex items-start gap-3 border-b last:border-b-0 border-outline-variant/40 hover:bg-surface-container transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-primary text-[20px] mt-0.5">person_check</span>
+                            <span className="min-w-0">
+                              <span className="block font-medium text-on-surface truncate">{a.nama}</span>
+                              <span className="block text-[11px] text-on-surface-variant truncate">
+                                NIP: {a.nip || "-"} · {a.jabatan} · {a.unit_kerja}
+                              </span>
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  {manualAnggotaId && (
+                    <div className="mt-2 px-4 py-3 rounded-xl border border-primary/30 bg-primary-fixed text-on-primary-fixed-variant flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="material-symbols-outlined text-primary text-[20px]">check_circle</span>
+                        <span className="text-body-sm font-medium truncate">Penerima dipilih: {manualSearch}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualAnggotaId("");
+                          setManualSearch("");
+                          setManualSearchOpen(true);
+                          setManualDuplicateMessage(null);
+                        }}
+                        className="text-primary hover:underline text-[12px] font-medium shrink-0"
+                      >
+                        Ganti
+                      </button>
+                    </div>
+                  )}
+                  {manualDuplicateChecking && manualAnggotaId && (
+                    <div className="mt-2 px-4 py-3 rounded-xl border border-outline-variant bg-surface-container text-body-sm text-on-surface-variant flex items-center gap-2">
+                      <span className="material-symbols-outlined animate-spin text-primary text-[18px]">progress_activity</span>
+                      Mengecek riwayat penerima pada tahun kegiatan...
+                    </div>
+                  )}
+                  {manualDuplicateMessage && (
+                    <div className="mt-2 px-4 py-3 rounded-xl border border-error/30 bg-error-container text-body-sm text-error flex items-start gap-2">
+                      <span className="material-symbols-outlined text-[18px] mt-0.5">block</span>
+                      <span>{manualDuplicateMessage}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-[12px] text-on-surface-variant">
+                  Catatan: anggota yang sudah tercatat menerima arisan pada tahun kegiatan yang sama tidak dapat diinput ulang.
+                </p>
+                <Button onClick={handleManualSubmit} disabled={manualSaving || manualDuplicateChecking || !!manualDuplicateMessage} icon="save">
+                  {manualSaving ? "Menyimpan..." : "Simpan Penerima"}
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-surface-container-low">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="material-symbols-outlined text-secondary">info</span>
+                <h4 className="font-h3 text-[18px] text-on-surface">Panduan Input</h4>
+              </div>
+              <ul className="space-y-3 text-body-sm text-on-surface-variant">
+                <li className="flex gap-2">
+                  <span className="material-symbols-outlined text-[18px] text-primary">looks_one</span>
+                  Pilih kegiatan sebagai periode pencatatan arisan.
+                </li>
+                <li className="flex gap-2">
+                  <span className="material-symbols-outlined text-[18px] text-primary">looks_two</span>
+                  Cari penerima berdasarkan NIP atau nama, lalu pilih anggota dari hasil pencarian.
+                </li>
+                <li className="flex gap-2">
+                  <span className="material-symbols-outlined text-[18px] text-primary">looks_3</span>
+                  Klik simpan, lalu data akan muncul di daftar pemenang dan riwayat lintas tahun.
+                </li>
+              </ul>
+            </Card>
+          </div>
+        ) : (
           /* Riwayat Lintas Tahun */
           <Card>
             <div className="p-6 border-b border-outline-variant flex flex-wrap items-center justify-between gap-4">
@@ -1026,6 +1369,20 @@ export default function ArisanPage() {
                 <h4 className="font-h3 text-[20px] text-on-surface">Riwayat Pemenang Arisan</h4>
               </div>
               <div className="flex items-center gap-3">
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">calendar_month</span>
+                  <select
+                    value={allWinnersMonth}
+                    onChange={(e) => setAllWinnersMonth(e.target.value)}
+                    className="appearance-none pl-9 pr-8 py-2 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none text-on-surface min-w-[140px]"
+                  >
+                    <option value="">Semua Bulan</option>
+                    {MONTH_OPTIONS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">expand_more</span>
+                </div>
                 <div className="relative">
                   <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">calendar_today</span>
                   <select
@@ -1044,10 +1401,10 @@ export default function ArisanPage() {
                 {allWinners.length > 0 && (
                   <button
                     onClick={() => {
-                      const header = ["No", "Nama", "NIP", "Jabatan", "Unit Kerja", "Acara", "Tanggal Acara", "Nominal", "Waktu Menang"];
+                      const header = ["No", "Nama", "NIP", "Jabatan", "Unit Kerja", "Acara", "Bulan", "Tanggal Acara", "Nominal", "Waktu Menang"];
                       const rows = allWinners.map((w, i) => [
                         i + 1, w.nama, w.nip, w.jabatan, w.unit_kerja,
-                        w.kegiatan_judul, new Date(w.kegiatan_tanggal).toLocaleDateString("id-ID"),
+                        w.kegiatan_judul, formatBulan(w.kegiatan_bulan), new Date(w.kegiatan_tanggal).toLocaleDateString("id-ID"),
                         w.nominal_per_orang ? formatRupiah(Number(w.nominal_per_orang)) : "-",
                         new Date(w.waktu).toLocaleString("id-ID"),
                       ]);
@@ -1055,7 +1412,7 @@ export default function ArisanPage() {
                       const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement("a"); a.href = url;
-                      a.download = `riwayat-arisan${allWinnersYear ? `-${allWinnersYear}` : ""}.csv`;
+                      a.download = `riwayat-arisan${allWinnersMonth ? `-${formatBulan(allWinnersMonth).toLowerCase()}` : ""}${allWinnersYear ? `-${allWinnersYear}` : ""}.csv`;
                       a.click(); URL.revokeObjectURL(url);
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container text-[12px] font-medium transition-colors"
@@ -1074,7 +1431,11 @@ export default function ArisanPage() {
             ) : allWinners.length === 0 ? (
               <div className="py-14 text-center text-on-surface-variant">
                 <span className="material-symbols-outlined text-[56px] block mb-3 opacity-20">savings</span>
-                <p className="text-body-sm">Belum ada data pemenang arisan{allWinnersYear ? ` tahun ${allWinnersYear}` : ""}.</p>
+                <p className="text-body-sm">
+                  Belum ada data pemenang arisan
+                  {allWinnersMonth ? ` bulan ${formatBulan(allWinnersMonth)}` : ""}
+                  {allWinnersYear ? ` tahun ${allWinnersYear}` : ""}.
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1085,13 +1446,14 @@ export default function ArisanPage() {
                       <th className="px-5 py-3 text-left">Nama</th>
                       <th className="px-5 py-3 text-left">Unit Kerja</th>
                       <th className="px-5 py-3 text-left">Kegiatan</th>
+                      <th className="px-5 py-3 text-center">Bulan</th>
                       <th className="px-5 py-3 text-center">Tanggal</th>
                       <th className="px-5 py-3 text-right">Nominal</th>
                       <th className="px-5 py-3 text-center">Waktu Menang</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-outline-variant/40">
-                    {allWinners.map((w, i) => (
+                    {allWinners.map((w) => (
                       <tr key={w.id} className="hover:bg-surface-container-low transition-colors">
                         <td className="px-5 py-3.5 text-center">
                           <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-secondary-fixed text-secondary font-bold text-[12px]">
@@ -1108,6 +1470,9 @@ export default function ArisanPage() {
                             {w.kegiatan_judul}
                           </a>
                           {w.lokasi && <p className="text-[11px] text-on-surface-variant">{w.lokasi}</p>}
+                        </td>
+                        <td className="px-5 py-3.5 text-center text-on-surface-variant whitespace-nowrap text-[12px]">
+                          {formatBulan(w.kegiatan_bulan)}
                         </td>
                         <td className="px-5 py-3.5 text-center text-on-surface-variant whitespace-nowrap text-[12px]">
                           {formatTanggal(w.kegiatan_tanggal)}
