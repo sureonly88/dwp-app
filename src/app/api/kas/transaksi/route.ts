@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { requireSession, generateTransactionNumber } from "@/lib/kas";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // ============================================================================
 // GET /api/kas/transaksi
@@ -73,6 +74,8 @@ export async function POST(req: NextRequest) {
   if (response) return response;
 
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const body = await req.json();
     const date = String(body.transaction_date ?? "").trim();
     const type = body.type;

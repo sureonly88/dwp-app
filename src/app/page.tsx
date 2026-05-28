@@ -156,7 +156,10 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadDashboard(); }, []);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { loadDashboard(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   const now = new Date();
   const greetHour = now.getHours();
@@ -419,7 +422,7 @@ export default function DashboardPage() {
               { href: "/keanggotaan", icon: "group_add", label: "Kelola Anggota", color: "bg-primary-fixed text-primary" },
               { href: "/iuran", icon: "account_balance_wallet", label: "Laporan Iuran", color: "bg-secondary-fixed text-secondary" },
               { href: "/arisan", icon: "savings", label: "Undian Arisan", color: "bg-tertiary-fixed text-tertiary" },
-              { href: "/doorprize", icon: "card_giftcard", label: "Doorprize", color: "bg-secondary-container text-secondary" },
+              { href: "/akun", icon: "lock_reset", label: "Ubah Password", color: "bg-secondary-container text-secondary" },
             ].map((item) => (
               <Link
                 key={item.href}

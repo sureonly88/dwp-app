@@ -19,8 +19,14 @@ function isPublicApi(pathname: string, method: string) {
 }
 
 function pageRoles(pathname: string): UserRole[] | null {
-  if (pathname.startsWith("/keanggotaan") || pathname.startsWith("/unit-kerja")) return ["admin"];
-  if (pathname.startsWith("/iuran")) return ["admin", "viewer"];
+  if (
+    pathname.startsWith("/keanggotaan") ||
+    pathname.startsWith("/unit-kerja") ||
+    pathname.startsWith("/users") ||
+    pathname.startsWith("/pengaturan") ||
+    pathname.startsWith("/kas")
+  ) return ["admin", "operator"];
+  if (pathname.startsWith("/iuran")) return ["admin", "operator", "viewer"];
   if (pathname.startsWith("/kegiatan") || pathname.startsWith("/arisan") || pathname.startsWith("/doorprize")) {
     return ["admin", "operator", "viewer"];
   }
@@ -29,13 +35,11 @@ function pageRoles(pathname: string): UserRole[] | null {
 
 function apiRoles(pathname: string, method: string): UserRole[] | null {
   if (method === "GET") {
-    if (pathname.startsWith("/api/iuran")) return ["admin", "viewer"];
+    if (pathname.startsWith("/api/iuran")) return ["admin", "operator", "viewer"];
     return ["admin", "operator", "viewer"];
   }
 
-  if (pathname.startsWith("/api/kegiatan") || pathname.startsWith("/api/arisan") || pathname.startsWith("/api/doorprize")) {
-    return ["admin", "operator"];
-  }
+  if (pathname.startsWith("/api/kas")) return ["admin", "operator"];
 
   return ["admin"];
 }

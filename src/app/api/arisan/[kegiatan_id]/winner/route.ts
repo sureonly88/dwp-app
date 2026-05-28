@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // POST /api/arisan/[kegiatan_id]/winner — input manual penerima arisan
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ kegiatan_id: string }> },
 ) {
+  const { response } = await requireAdmin(req);
+  if (response) return response;
   try {
     const { kegiatan_id } = await params;
     const body = await req.json();

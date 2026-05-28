@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // GET /api/anggota/[id]
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -23,6 +24,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // PUT /api/anggota/[id]
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const body = await req.json();
     const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar } = body;
@@ -51,8 +54,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 // DELETE /api/anggota/[id]
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const [result] = await pool.execute<ResultSetHeader>(
       "DELETE FROM anggota WHERE id = ?",

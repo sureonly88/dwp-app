@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // PUT /api/doorprize/[kegiatan_id]/hadiah/[id] — rename
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ kegiatan_id: string; id: string }> }
 ) {
+  const { response } = await requireAdmin(req);
+  if (response) return response;
   try {
     const { kegiatan_id, id } = await params;
     const body = await req.json();
@@ -29,9 +32,11 @@ export async function PUT(
 
 // DELETE /api/doorprize/[kegiatan_id]/hadiah/[id]
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ kegiatan_id: string; id: string }> }
 ) {
+  const { response } = await requireAdmin(req);
+  if (response) return response;
   try {
     const { kegiatan_id, id } = await params;
     const [res] = await pool.execute<ResultSetHeader>(
@@ -50,9 +55,11 @@ export async function DELETE(
 
 // POST /api/doorprize/[kegiatan_id]/hadiah/[id] — undi pemenang untuk hadiah ini
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ kegiatan_id: string; id: string }> }
 ) {
+  const { response } = await requireAdmin(req);
+  if (response) return response;
   try {
     const { kegiatan_id, id } = await params;
 

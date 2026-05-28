@@ -5,6 +5,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Umum",
     items: [
       { label: "Dashboard", href: "/", icon: "dashboard" },
+      { label: "Akun Saya", href: "/akun", icon: "account_circle" },
     ],
   },
   {

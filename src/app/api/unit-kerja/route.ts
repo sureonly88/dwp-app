@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export async function GET() {
   try {
@@ -15,6 +16,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const body = await req.json();
     const { kode, nama, deskripsi } = body;
 

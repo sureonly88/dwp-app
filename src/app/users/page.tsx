@@ -7,6 +7,7 @@ import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import UserModal, { type UserFormData } from "@/components/users/UserModal";
 import { FetchErrorBox } from "@/components/ui/FetchError";
+import type { SessionUser } from "@/lib/auth-token";
 
 interface User {
   id: number;
@@ -50,9 +51,15 @@ export default function UsersPage() {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<null | "add" | "edit">(null);
   const [editTarget, setEditTarget] = useState<(UserFormData & { id: number }) | null>(null);
+  const [passwordTarget, setPasswordTarget] = useState<User | null>(null);
+  const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
+  const isAdmin = currentUser?.role === "admin";
 
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
@@ -75,7 +82,17 @@ export default function UsersPage() {
     }
   }, [search]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { void fetchData(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [fetchData]);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.ok ? res.json() : null)
+      .then((json) => setCurrentUser(json?.user ?? null))
+      .catch(() => setCurrentUser(null));
+  }, []);
 
   function openEdit(user: User) {
     setEditTarget({
@@ -88,6 +105,48 @@ export default function UsersPage() {
       anggota_id: user.anggota_id,
     });
     setModal("edit");
+  }
+
+  function openChangePassword(user: User) {
+    setPasswordTarget(user);
+    setPasswordForm({ password: "", confirmPassword: "" });
+    setPasswordError(null);
+  }
+
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!passwordTarget) return;
+
+    setPasswordError(null);
+    if (passwordForm.password.length < 6) {
+      setPasswordError("Password minimal 6 karakter");
+      return;
+    }
+    if (passwordForm.password !== passwordForm.confirmPassword) {
+      setPasswordError("Konfirmasi password tidak sama");
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      const res = await fetch(`/api/users/${passwordTarget.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: passwordForm.password }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setPasswordError(json.error ?? "Gagal mengubah password");
+        return;
+      }
+      showToast(`Password ${passwordTarget.username} berhasil diubah`);
+      setPasswordTarget(null);
+      setPasswordForm({ password: "", confirmPassword: "" });
+    } catch {
+      setPasswordError("Gagal mengubah password. Coba lagi.");
+    } finally {
+      setPasswordLoading(false);
+    }
   }
 
   async function handleDelete() {
@@ -133,10 +192,10 @@ export default function UsersPage() {
       )}
 
       {/* Modal */}
-      {modal === "add" && (
+      {isAdmin && modal === "add" && (
         <UserModal mode="add" onClose={() => setModal(null)} onSuccess={() => { showToast("User berhasil dibuat"); fetchData(); }} />
       )}
-      {modal === "edit" && editTarget && (
+      {isAdmin && modal === "edit" && editTarget && (
         <UserModal
           mode="edit"
           initialData={editTarget}
@@ -145,8 +204,86 @@ export default function UsersPage() {
         />
       )}
 
+      {/* Change Password Modal */}
+      {isAdmin && passwordTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setPasswordTarget(null); }}
+        >
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="w-12 h-12 bg-primary-container rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="material-symbols-outlined text-primary text-[24px]">lock_reset</span>
+            </div>
+            <h3 className="text-center font-semibold text-on-surface mb-1">Ubah Password</h3>
+            <p className="text-center text-sm text-on-surface-variant mb-5">
+              Atur password baru untuk <strong>{passwordTarget.nama}</strong> (@{passwordTarget.username}).
+            </p>
+
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              {passwordError && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-error-container text-on-error-container text-sm">
+                  <span className="material-symbols-outlined text-[16px]">error</span>
+                  {passwordError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-label-sm text-on-surface-variant mb-1">
+                  Password Baru <span className="text-error">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={passwordForm.password}
+                  onChange={(e) => {
+                    setPasswordForm((prev) => ({ ...prev, password: e.target.value }));
+                    setPasswordError(null);
+                  }}
+                  placeholder="Min. 6 karakter"
+                  className="w-full px-3 py-2 rounded-lg border border-outline bg-surface text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-label-sm text-on-surface-variant mb-1">
+                  Konfirmasi Password <span className="text-error">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={passwordForm.confirmPassword}
+                  onChange={(e) => {
+                    setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }));
+                    setPasswordError(null);
+                  }}
+                  placeholder="Ulangi password baru"
+                  className="w-full px-3 py-2 rounded-lg border border-outline bg-surface text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPasswordTarget(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-outline text-on-surface text-sm font-medium hover:bg-surface-container transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="flex-1 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {passwordLoading && <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>}
+                  Simpan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirm */}
-      {deleteTarget && (
+      {isAdmin && deleteTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setDeleteTarget(null); }}
@@ -189,13 +326,15 @@ export default function UsersPage() {
               Kelola akun login dan hak akses sistem
             </p>
           </div>
-          <Button
-            variant="primary"
-            onClick={() => setModal("add")}
-            icon="person_add"
-          >
-            Tambah User
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="primary"
+              onClick={() => setModal("add")}
+              icon="person_add"
+            >
+              Tambah User
+            </Button>
+          )}
         </div>
 
         {/* Search */}
@@ -238,7 +377,7 @@ export default function UsersPage() {
                     <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Terhubung Anggota</th>
                     <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Status</th>
                     <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Login Terakhir</th>
-                    <th className="px-4 py-3" />
+                    {isAdmin && <th className="px-4 py-3" />}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant/50">
@@ -274,24 +413,33 @@ export default function UsersPage() {
                       <td className="px-4 py-3 text-on-surface-variant text-xs">
                         {formatDate(user.last_login_at)}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end">
-                          <button
-                            onClick={() => openEdit(user)}
-                            className="w-8 h-8 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors"
-                            title="Edit"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">edit</span>
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(user)}
-                            className="w-8 h-8 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors"
-                            title="Hapus"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                          </button>
-                        </div>
-                      </td>
+                      {isAdmin && (
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1 justify-end">
+                            <button
+                              onClick={() => openEdit(user)}
+                              className="w-8 h-8 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors"
+                              title="Edit"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">edit</span>
+                            </button>
+                            <button
+                              onClick={() => openChangePassword(user)}
+                              className="w-8 h-8 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-primary-container hover:text-primary transition-colors"
+                              title="Ubah Password"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">lock_reset</span>
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(user)}
+                              className="w-8 h-8 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors"
+                              title="Hapus"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">delete</span>
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

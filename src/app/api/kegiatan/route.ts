@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { randomBytes } from "crypto";
 import { computeKegiatanStatus } from "@/lib/kegiatanUtils";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export interface KegiatanRow extends RowDataPacket {
   id: number;
@@ -104,6 +105,8 @@ export async function GET(req: NextRequest) {
 // POST /api/kegiatan
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const body = await req.json();
     const {
       judul,

@@ -57,7 +57,11 @@ export default function KasTransaksiPage() {
     fetch("/api/auth/me").then((r) => r.json()).then((j) => setMe(j.user)).catch(() => {});
     // Read URL ?status=pending (from dashboard link)
     const sp = new URLSearchParams(window.location.search);
-    const s = sp.get("status"); if (s) setFilterStatus(s);
+    const s = sp.get("status");
+    if (s) {
+      const timeout = window.setTimeout(() => setFilterStatus(s), 0);
+      return () => window.clearTimeout(timeout);
+    }
   }, []);
 
   const loadCategories = useCallback(async () => {
@@ -84,8 +88,14 @@ export default function KasTransaksiPage() {
     } catch { setFetchError(true); } finally { setLoading(false); }
   }, [filterType, filterStatus, filterFrom, filterTo, search]);
 
-  useEffect(() => { loadCategories(); }, [loadCategories]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { void loadCategories(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadCategories]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [load]);
 
   const filteredCategories = categories.filter((c) => c.type === form.type && c.code !== "IURAN_ANGGOTA" && c.code !== "IURAN_PENGURUS" && c.code !== "PENJUALAN_BARANG");
 
@@ -169,7 +179,7 @@ export default function KasTransaksiPage() {
     return <Badge label={label} variant={variant} />;
   };
 
-  const isAdmin = me?.role === "admin";
+  const canApprove = me?.role === "admin" || me?.role === "operator";
 
   return (
     <AppLayout>
@@ -269,7 +279,7 @@ export default function KasTransaksiPage() {
                     <td className="px-4 py-3 text-on-surface-variant max-w-[260px] truncate">{t.description ?? "-"}</td>
                     <td className="px-4 py-3">{statusBadge(t.status)}</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {t.status === "pending" && isAdmin && (
+                      {t.status === "pending" && canApprove && (
                         <>
                           <button onClick={() => approve(t, "approve")} title="Setujui" className="p-1.5 rounded-lg hover:bg-tertiary-container text-tertiary">
                             <span className="material-symbols-outlined text-[18px]">check_circle</span>

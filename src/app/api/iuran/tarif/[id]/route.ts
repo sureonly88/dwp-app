@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { ensureIuranTarifSchema } from "@/lib/iuran";
 import type { ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // PUT /api/iuran/tarif/[id] — update tarif (nominal/aktif/catatan)
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     await ensureIuranTarifSchema();
 
     const { id } = await params;
@@ -41,8 +44,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 // DELETE /api/iuran/tarif/[id]
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const [res] = await pool.execute<ResultSetHeader>(
       `DELETE FROM iuran_tarif WHERE id=?`,

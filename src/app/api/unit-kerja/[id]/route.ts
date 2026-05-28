@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { requireAdmin } from "@/lib/admin-auth";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function PUT(req: NextRequest, { params }: Params) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const body = await req.json();
     const { kode, nama, deskripsi, aktif } = body;
@@ -36,8 +39,10 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(req: NextRequest, { params }: Params) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
 
     // Cek apakah masih dipakai oleh anggota

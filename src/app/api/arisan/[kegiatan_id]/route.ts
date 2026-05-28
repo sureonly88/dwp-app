@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // GET /api/arisan/[kegiatan_id] — setup + winners
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
@@ -69,6 +70,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
 // PUT /api/arisan/[kegiatan_id] — upsert setup
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { kegiatan_id } = await params;
     const body = await req.json();
     const nominal = Number(body.nominal_per_orang ?? 0);
@@ -104,8 +107,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ kegi
 }
 
 // DELETE /api/arisan/[kegiatan_id] — hapus setup + semua pemenang
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { kegiatan_id } = await params;
     await pool.execute(`DELETE FROM arisan_winners WHERE kegiatan_id = ?`, [kegiatan_id]);
     await pool.execute(`DELETE FROM arisan_setup WHERE kegiatan_id = ?`, [kegiatan_id]);

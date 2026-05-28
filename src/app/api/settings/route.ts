@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth-token";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export type Settings = Record<string, string | null>;
 
@@ -34,6 +35,8 @@ export async function PATCH(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
 
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const body: { key_name: string; value: string }[] = await req.json();
     if (!Array.isArray(body) || body.length === 0) {
       return NextResponse.json({ error: "Body harus array of { key_name, value }" }, { status: 400 });

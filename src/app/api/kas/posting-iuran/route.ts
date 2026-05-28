@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import { requireSession, generateTransactionNumber } from "@/lib/kas";
 import { getLaporanIuran } from "@/lib/iuran";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // ============================================================================
 // GET /api/kas/posting-iuran?bulan=5&tahun=2026
@@ -64,6 +65,8 @@ export async function POST(req: NextRequest) {
   if (response) return response;
 
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const body = await req.json();
     const bulan = Math.max(1, Math.min(12, Number(body.bulan)));
     const tahun = Math.max(2000, Number(body.tahun));

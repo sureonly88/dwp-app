@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export interface AnggotaRow extends RowDataPacket {
   id: number;
@@ -17,13 +18,27 @@ export interface AnggotaRow extends RowDataPacket {
   updated_at: string;
 }
 
-// GET /api/anggota?search=&status=&unit=&page=&limit=
+function applyJenisFilter(jenis: string, conditions: string[]) {
+  const normalizedJenis = jenis.trim().toLowerCase();
+
+  // Di data anggota, kolom yang merepresentasikan "jenis" adalah jabatan:
+  // - Anggota  => jabatan persis "Anggota"
+  // - Pengurus => semua jabatan selain "Anggota" (Ketua, Sekretaris, Bendahara, dst.)
+  if (normalizedJenis === "pengurus") {
+    conditions.push("LOWER(TRIM(COALESCE(jabatan, ''))) <> 'anggota'");
+  } else if (normalizedJenis === "anggota") {
+    conditions.push("LOWER(TRIM(COALESCE(jabatan, ''))) = 'anggota'");
+  }
+}
+
+// GET /api/anggota?search=&status=&unit=&jenis=&page=&limit=
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") ?? "";
     const status = searchParams.get("status") ?? "";
     const unit = searchParams.get("unit") ?? "";
+    const jenis = searchParams.get("jenis") ?? "";
     const parsedPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
     const parsedLimit = Number.parseInt(searchParams.get("limit") ?? "10", 10);
     const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
@@ -45,6 +60,7 @@ export async function GET(req: NextRequest) {
       conditions.push("unit_kerja = ?");
       params.push(unit);
     }
+    applyJenisFilter(jenis, conditions);
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -68,6 +84,8 @@ export async function GET(req: NextRequest) {
 // POST /api/anggota
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const body = await req.json();
     const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar } = body;
 

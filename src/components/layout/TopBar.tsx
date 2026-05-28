@@ -97,10 +97,8 @@ export default function TopBar() {
 
   const allowedNav = useMemo(() => {
     return NAV_GROUPS.map((group) => {
-      if (!user || user.role === "admin") return group;
-      const allowed = user.role === "operator"
-        ? ["/", "/kegiatan", "/arisan", "/doorprize"]
-        : ["/", "/kegiatan", "/iuran", "/arisan", "/doorprize"];
+      if (!user || user.role === "admin" || user.role === "operator") return group;
+      const allowed = ["/", "/akun", "/kegiatan", "/iuran", "/arisan", "/doorprize"];
       return { ...group, items: group.items.filter((item) => allowed.includes(item.href)) };
     }).filter((g) => g.items.length > 0);
   }, [user]);
@@ -145,9 +143,14 @@ export default function TopBar() {
             <p className="font-medium text-on-surface text-[12px] leading-tight">{user?.nama ?? "Pengguna"}</p>
             <p className="text-[9px] text-on-surface-variant uppercase tracking-widest">{user ? roleLabel(user.role) : "Memuat"}</p>
           </div>
-          <div className="w-9 h-9 rounded-full border-2 border-primary-fixed bg-secondary-fixed flex items-center justify-center text-secondary font-bold text-[12px] flex-shrink-0 cursor-pointer" aria-label="User Avatar">
+          <Link
+            href="/akun"
+            title="Akun Saya / Ubah Password"
+            className="w-9 h-9 rounded-full border-2 border-primary-fixed bg-secondary-fixed flex items-center justify-center text-secondary font-bold text-[12px] flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all"
+            aria-label="Akun Saya"
+          >
             {user ? getInitials(user.nama) : "..."}
-          </div>
+          </Link>
           <button onClick={handleLogout} disabled={loggingOut} title="Logout" className="w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error disabled:opacity-50 transition-colors">
             <span className="material-symbols-outlined text-[20px]">{loggingOut ? "progress_activity" : "logout"}</span>
           </button>

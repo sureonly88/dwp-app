@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 interface TamuRow extends RowDataPacket {
   id: number;
@@ -33,6 +34,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // POST /api/kegiatan/[id]/presensi/tamu  body: { nama, instansi?, keterangan? }
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const body = await req.json();
     const nama = String(body.nama ?? "").trim();
@@ -75,6 +78,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 // DELETE /api/kegiatan/[id]/presensi/tamu?tamu_id=X
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const { searchParams } = new URL(req.url);
     const tamuId = searchParams.get("tamu_id");

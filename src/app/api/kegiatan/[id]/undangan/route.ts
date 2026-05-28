@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
 import puppeteer from "puppeteer";
+import { requireAdmin } from "@/lib/admin-auth";
 
 const HARI_ID = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 const BULAN_ID = [
@@ -20,6 +21,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { response } = await requireAdmin(req);
+  if (response) return response;
   try {
     const { id } = await params;
     const body = await req.json();

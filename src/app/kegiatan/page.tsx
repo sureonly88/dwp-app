@@ -9,6 +9,7 @@ import Button from "@/components/ui/Button";
 import KegiatanModal, { type KegiatanFormData } from "@/components/kegiatan/KegiatanModal";
 import DeleteConfirm from "@/components/keanggotaan/DeleteConfirm";
 import { FetchErrorRow } from "@/components/ui/FetchError";
+import type { SessionUser } from "@/lib/auth-token";
 
 interface Kegiatan {
   id: number;
@@ -88,6 +89,8 @@ export default function KegiatanPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
+  const isAdmin = currentUser?.role === "admin";
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
@@ -116,8 +119,20 @@ export default function KegiatanPage() {
     }
   }, [search, filterStatus, filterKategori, page]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { setPage(1); }, [search, filterStatus, filterKategori]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { void fetchData(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [fetchData]);
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.ok ? res.json() : null)
+      .then((json) => setCurrentUser(json?.user ?? null))
+      .catch(() => setCurrentUser(null));
+  }, []);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setPage(1), 0);
+    return () => window.clearTimeout(timeout);
+  }, [search, filterStatus, filterKategori]);
 
   const fetchCalData = useCallback(async () => {
     setCalLoading(true);
@@ -135,7 +150,11 @@ export default function KegiatanPage() {
     }
   }, [calYear, calMonth]);
 
-  useEffect(() => { if (view === "calendar") fetchCalData(); }, [view, fetchCalData]);
+  useEffect(() => {
+    if (view !== "calendar") return;
+    const timeout = window.setTimeout(() => { void fetchCalData(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [view, fetchCalData]);
 
   const handleEdit = (k: Kegiatan) => {
     setEditTarget({
@@ -190,14 +209,14 @@ export default function KegiatanPage() {
         </div>
       )}
 
-      {modal === "add" && (
+      {isAdmin && modal === "add" && (
         <KegiatanModal
           mode="add"
           onClose={() => setModal(null)}
           onSuccess={(msg) => { setModal(null); fetchData(); showToast(msg); }}
         />
       )}
-      {modal === "edit" && editTarget && (
+      {isAdmin && modal === "edit" && editTarget && (
         <KegiatanModal
           mode="edit"
           initialData={editTarget}
@@ -205,7 +224,7 @@ export default function KegiatanPage() {
           onSuccess={(msg) => { setModal(null); setEditTarget(null); fetchData(); showToast(msg); }}
         />
       )}
-      {deleteTarget && (
+      {isAdmin && deleteTarget && (
         <DeleteConfirm
           name={deleteTarget.judul}
           loading={deleteLoading}
@@ -239,9 +258,11 @@ export default function KegiatanPage() {
                 <span className="hidden sm:inline">Kalender</span>
               </button>
             </div>
-            <Button icon="event" size="lg" onClick={() => setModal("add")}>
-              Buat Kegiatan
-            </Button>
+            {isAdmin && (
+              <Button icon="event" size="lg" onClick={() => setModal("add")}>
+                Buat Kegiatan
+              </Button>
+            )}
           </div>
         </div>
 
@@ -330,7 +351,7 @@ export default function KegiatanPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface-container-low">
-                  {["Acara", "Tanggal & Waktu", "Lokasi", "Kategori", "Kehadiran", "Status", "Aksi"].map((h) => (
+                  {["Acara", "Tanggal & Waktu", "Lokasi", "Kategori", "Kehadiran", "Status", "Aksi"].filter((h) => isAdmin || h !== "Aksi").map((h) => (
                     <th key={h} className="px-6 py-4 font-label-md text-label-md text-on-surface-variant border-b border-outline-variant whitespace-nowrap">
                       {h}
                     </th>
@@ -399,7 +420,7 @@ export default function KegiatanPage() {
                         <td className="px-6 py-4">
                           <Badge label={k.status} variant={statusVariant(k.status)} dot />
                         </td>
-                        <td className="px-6 py-4">
+                         {isAdmin && <td className="px-6 py-4">
                           <div className="flex items-center gap-1">
                             <Link
                               href={`/kegiatan/${k.id}`}
@@ -430,7 +451,7 @@ export default function KegiatanPage() {
                               <span className="material-symbols-outlined text-[18px]">delete</span>
                             </button>
                           </div>
-                        </td>
+                         </td>}
                       </tr>
                     );
                   })

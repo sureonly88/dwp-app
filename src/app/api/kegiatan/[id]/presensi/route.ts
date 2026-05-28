@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 interface PresensiRow extends RowDataPacket {
   id: number;
@@ -50,6 +51,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 // POST /api/kegiatan/[id]/presensi  body: { anggota_id?, nip?, metode?, catatan?, foto? }
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const body = await req.json();
     const { anggota_id, nip, metode, catatan } = body;
@@ -124,8 +127,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 // PUT /api/kegiatan/[id]/presensi  — hadirkan semua anggota aktif sekaligus
-export async function PUT(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
 
     // Validate kegiatan exists & not Dibatalkan
@@ -163,6 +168,8 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ id:
 // DELETE /api/kegiatan/[id]/presensi?all=1          (bulk: hapus seluruh daftar hadir)
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const { searchParams } = new URL(req.url);
     const presensiId = searchParams.get("presensi_id");

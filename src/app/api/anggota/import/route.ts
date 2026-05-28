@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { ResultSetHeader } from "mysql2";
 import * as XLSX from "xlsx";
+import { requireAdmin } from "@/lib/admin-auth";
 
 type AnggotaStatus = "Aktif" | "Non-Aktif" | "Cuti";
 
@@ -105,6 +106,8 @@ function isBlankRow(row: unknown[]) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const formData = await req.formData();
     const file = formData.get("file");
 

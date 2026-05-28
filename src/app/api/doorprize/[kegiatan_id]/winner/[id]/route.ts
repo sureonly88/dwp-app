@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // DELETE /api/doorprize/[kegiatan_id]/winner/[id] — batalkan pemenang dan hapus hadiah otomatis
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ kegiatan_id: string; id: string }> }
 ) {
+  const { response } = await requireAdmin(req);
+  if (response) return response;
   try {
     const { kegiatan_id, id } = await params;
 

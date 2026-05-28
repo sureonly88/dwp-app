@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, verifySessionToken, isUserRole } from "@/lib/auth-token";
 import { listUsers, createUser } from "@/lib/auth-db";
 import { hashPassword } from "@/lib/password";
+import { requireAdmin } from "@/lib/admin-auth";
+
+function adminOrOperator(req: NextRequest) {
+  return verifySessionToken(req.cookies.get(AUTH_COOKIE_NAME)?.value).then((s) => {
+    if (!s || !["admin", "operator"].includes(s.role)) return null;
+    return s;
+  });
+}
 
 function adminOnly(req: NextRequest) {
   return verifySessionToken(req.cookies.get(AUTH_COOKIE_NAME)?.value).then((s) => {
@@ -12,7 +20,7 @@ function adminOnly(req: NextRequest) {
 
 // GET /api/users?search=
 export async function GET(req: NextRequest) {
-  const session = await adminOnly(req);
+  const session = await adminOrOperator(req);
   if (!session) return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
 
   const search = new URL(req.url).searchParams.get("search") ?? "";
@@ -34,6 +42,8 @@ export async function POST(req: NextRequest) {
   const anggota_id: number | null = body.anggota_id ? Number(body.anggota_id) : null;
 
   if (!username || !nama || !password || !isUserRole(role)) {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     return NextResponse.json({ error: "Field wajib tidak lengkap atau role tidak valid" }, { status: 400 });
   }
   if (password.length < 6) {

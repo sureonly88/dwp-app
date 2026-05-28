@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { ensureIuranTarifSchema } from "@/lib/iuran";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 interface TarifRow extends RowDataPacket {
   id: number;
@@ -33,6 +34,8 @@ export async function GET() {
 // POST /api/iuran/tarif — tambah tarif baru
 export async function POST(req: NextRequest) {
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     await ensureIuranTarifSchema();
 
     const body = await req.json();

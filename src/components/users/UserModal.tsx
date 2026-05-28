@@ -7,6 +7,7 @@ interface AnggotaOption {
   nama: string;
   nip: string;
   unit_kerja: string;
+  jabatan: string;
 }
 
 export interface UserFormData {
@@ -59,12 +60,38 @@ export default function UserModal({ mode, initialData, onClose, onSuccess }: Use
   const [anggotaSearch, setAnggotaSearch] = useState("");
   const [showAnggotaDropdown, setShowAnggotaDropdown] = useState(false);
 
-  // Fetch anggota list
+  // Fetch seluruh anggota DWP untuk pilihan tautan user, termasuk pengurus.
   useEffect(() => {
-    fetch("/api/anggota?limit=200&status=Aktif")
-      .then((r) => r.json())
-      .then((d: { data: AnggotaOption[] }) => setAnggotaOptions(d.data ?? []))
-      .catch(() => setAnggotaOptions([]));
+    let cancelled = false;
+
+    async function fetchAllAnggota() {
+      try {
+        const limit = 100;
+        const firstRes = await fetch(`/api/anggota?limit=${limit}&page=1`);
+        const firstJson: { data?: AnggotaOption[]; total?: number } = await firstRes.json();
+        const all = [...(firstJson.data ?? [])];
+        const total = firstJson.total ?? all.length;
+        const totalPages = Math.ceil(total / limit);
+
+        if (totalPages > 1) {
+          const nextPages = await Promise.all(
+            Array.from({ length: totalPages - 1 }, (_, index) =>
+              fetch(`/api/anggota?limit=${limit}&page=${index + 2}`).then(
+                (r) => r.json() as Promise<{ data?: AnggotaOption[] }>
+              )
+            )
+          );
+          nextPages.forEach((page) => all.push(...(page.data ?? [])));
+        }
+
+        if (!cancelled) setAnggotaOptions(all);
+      } catch {
+        if (!cancelled) setAnggotaOptions([]);
+      }
+    }
+
+    fetchAllAnggota();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -242,7 +269,7 @@ export default function UserModal({ mode, initialData, onClose, onSuccess }: Use
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-primary bg-primary-container/20">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-on-surface truncate">{selectedAnggota.nama}</p>
-                  <p className="text-xs text-on-surface-variant">{selectedAnggota.nip} · {selectedAnggota.unit_kerja}</p>
+                  <p className="text-xs text-on-surface-variant">{selectedAnggota.nip} · {selectedAnggota.jabatan} · {selectedAnggota.unit_kerja}</p>
                 </div>
                 <button
                   type="button"
@@ -273,7 +300,7 @@ export default function UserModal({ mode, initialData, onClose, onSuccess }: Use
                         className="w-full text-left px-3 py-2 hover:bg-surface-container transition-colors"
                       >
                         <p className="text-sm text-on-surface">{a.nama}</p>
-                        <p className="text-xs text-on-surface-variant">{a.nip} · {a.unit_kerja}</p>
+                        <p className="text-xs text-on-surface-variant">{a.nip} · {a.jabatan} · {a.unit_kerja}</p>
                       </button>
                     ))}
                   </div>

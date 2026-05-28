@@ -9,6 +9,7 @@ import Button from "@/components/ui/Button";
 import AnggotaModal, { type AnggotaFormData } from "@/components/keanggotaan/AnggotaModal";
 import DeleteConfirm from "@/components/keanggotaan/DeleteConfirm";
 import { FetchErrorRow } from "@/components/ui/FetchError";
+import type { SessionUser } from "@/lib/auth-token";
 
 interface Anggota {
   id: number;
@@ -69,17 +70,31 @@ export default function KeanggotaanPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
+  const [totalAktif, setTotalAktif] = useState(0);
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterUnit, setFilterUnit] = useState("");
+  const [filterJenis, setFilterJenis] = useState<"" | "pengurus" | "anggota">("");
   const [unitOptions, setUnitOptions] = useState<UnitKerjaOption[]>([]);
+
+  const updateSearch = (value: string) => { setSearch(value); setPage(1); };
+  const updateStatus = (value: string) => { setFilterStatus(value); setPage(1); };
+  const updateUnit = (value: string) => { setFilterUnit(value); setPage(1); };
+  const updateJenis = (value: "" | "pengurus" | "anggota") => { setFilterJenis(value); setPage(1); };
 
   useEffect(() => {
     fetch("/api/unit-kerja")
       .then((r) => r.json())
       .then((data: UnitKerjaOption[]) => setUnitOptions(data.filter((u) => u.aktif === 1)))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/anggota?status=Aktif&limit=1")
+      .then((r) => r.json())
+      .then((json: { total?: number }) => setTotalAktif(json.total ?? 0))
+      .catch(() => setTotalAktif(0));
   }, []);
 
   const [modal, setModal] = useState<null | "add" | "edit">(null);
@@ -89,6 +104,8 @@ export default function KeanggotaanPage() {
 
   const [fetchError, setFetchError] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
+  const isAdmin = currentUser?.role === "admin";
 
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
@@ -103,12 +120,13 @@ export default function KeanggotaanPage() {
         search,
         status: filterStatus,
         unit: filterUnit,
+        jenis: filterJenis,
         page: String(page),
         limit: String(LIMIT),
       });
       const res = await fetch(`/api/anggota?${params}`);
       const json: ApiResponse = await res.json();
-      setData(json.data);
+      setData(json.data ?? []);
       setTotal(json.total);
     } catch {
       setFetchError(true);
@@ -116,15 +134,19 @@ export default function KeanggotaanPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, filterUnit, page]);
+  }, [search, filterStatus, filterUnit, filterJenis, page]);
 
   useEffect(() => {
-    fetchData();
+    const timeout = window.setTimeout(() => { void fetchData(); }, 0);
+    return () => window.clearTimeout(timeout);
   }, [fetchData]);
 
   useEffect(() => {
-    setPage(1);
-  }, [search, filterStatus, filterUnit]);
+    fetch("/api/auth/me")
+      .then((res) => res.ok ? res.json() : null)
+      .then((json) => setCurrentUser(json?.user ?? null))
+      .catch(() => setCurrentUser(null));
+  }, []);
 
   const handleEdit = (anggota: Anggota) => {
     setEditTarget({
@@ -225,7 +247,7 @@ export default function KeanggotaanPage() {
         </div>
       )}
 
-      {modal === "add" && (
+      {isAdmin && modal === "add" && (
         <AnggotaModal
           mode="add"
           onClose={() => setModal(null)}
@@ -236,7 +258,7 @@ export default function KeanggotaanPage() {
           }}
         />
       )}
-      {modal === "edit" && editTarget && (
+      {isAdmin && modal === "edit" && editTarget && (
         <AnggotaModal
           mode="edit"
           initialData={editTarget}
@@ -252,7 +274,7 @@ export default function KeanggotaanPage() {
           }}
         />
       )}
-      {deleteTarget && (
+      {isAdmin && deleteTarget && (
         <DeleteConfirm
           name={deleteTarget.nama}
           loading={deleteLoading}
@@ -286,14 +308,14 @@ export default function KeanggotaanPage() {
             <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Anggota Aktif</p>
             <div className="flex items-end justify-between gap-4">
               <h3 className="font-h1 text-[36px] text-on-tertiary-fixed-variant leading-tight">
-                {data.filter((a) => a.status === "Aktif").length}
+                {totalAktif}
               </h3>
             </div>
             {data.length > 0 && (
               <div className="w-full h-2 bg-tertiary-fixed rounded-full overflow-hidden mt-2">
                 <div
                   className="h-full bg-tertiary rounded-full transition-all"
-                  style={{ width: `${(data.filter((a) => a.status === "Aktif").length / data.length) * 100}%` }}
+                  style={{ width: `${total > 0 ? (totalAktif / total) * 100 : 0}%` }}
                 />
               </div>
             )}
@@ -315,23 +337,29 @@ export default function KeanggotaanPage() {
             )}
           </div>
           <div className="col-span-2 lg:col-span-1 flex flex-wrap items-center justify-start lg:justify-end gap-3">
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleImportFile}
-            />
-            <Button variant="outline" icon="upload_file" disabled={importing} onClick={() => importInputRef.current?.click()}>
-              {importing ? "Mengimport..." : "Import Excel"}
-            </Button>
+            {isAdmin && (
+              <>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={handleImportFile}
+                />
+                <Button variant="outline" icon="upload_file" disabled={importing} onClick={() => importInputRef.current?.click()}>
+                  {importing ? "Mengimport..." : "Import Excel"}
+                </Button>
+              </>
+            )}
             <Button variant="ghost" icon="description" onClick={downloadImportTemplate}>
               Template
             </Button>
             <Button variant="outline" icon="download">Ekspor Data</Button>
-            <Button icon="person_add" size="lg" onClick={() => setModal("add")}>
-              Tambah Anggota
-            </Button>
+            {isAdmin && (
+              <Button icon="person_add" size="lg" onClick={() => setModal("add")}>
+                Tambah Anggota
+              </Button>
+            )}
           </div>
         </div>
 
@@ -345,7 +373,7 @@ export default function KeanggotaanPage() {
                   <input
                     type="text"
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => updateSearch(e.target.value)}
                     placeholder="Nama atau NIP..."
                     className="pl-9 pr-4 py-2.5 border border-outline-variant rounded-lg text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface min-w-[200px]"
                   />
@@ -357,7 +385,7 @@ export default function KeanggotaanPage() {
                   <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">tune</span>
                   <select
                     value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
+                    onChange={(e) => updateStatus(e.target.value)}
                     className="appearance-none pl-9 pr-8 py-2.5 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[140px] text-on-surface"
                   >
                     <option value="">Semua Status</option>
@@ -374,13 +402,29 @@ export default function KeanggotaanPage() {
                   <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">corporate_fare</span>
                   <select
                     value={filterUnit}
-                    onChange={(e) => setFilterUnit(e.target.value)}
+                    onChange={(e) => updateUnit(e.target.value)}
                     className="appearance-none pl-9 pr-8 py-2.5 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[160px] text-on-surface"
                   >
                     <option value="">Semua Unit</option>
                     {unitOptions.map((u) => (
                       <option key={u.id} value={u.nama}>{u.nama}</option>
                     ))}
+                  </select>
+                  <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">expand_more</span>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-label-sm text-on-surface-variant">Jenis</label>
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">groups</span>
+                  <select
+                    value={filterJenis}
+                    onChange={(e) => updateJenis(e.target.value as "" | "pengurus" | "anggota")}
+                    className="appearance-none pl-9 pr-8 py-2.5 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[150px] text-on-surface"
+                  >
+                    <option value="">Semua</option>
+                    <option value="pengurus">Pengurus</option>
+                    <option value="anggota">Anggota</option>
                   </select>
                   <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">expand_more</span>
                 </div>
@@ -393,7 +437,7 @@ export default function KeanggotaanPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface-container-low">
-                  {["Nama Anggota", "NIP/ID", "Jabatan", "Unit Kerja", "Kontak", "Status", "Aksi"].map((h) => (
+                  {["Nama Anggota", "NIP/ID", "Jabatan", "Unit Kerja", "Kontak", "Status", "Aksi"].filter((h) => isAdmin || h !== "Aksi").map((h) => (
                     <th key={h} className="px-6 py-4 font-label-md text-label-md text-on-surface-variant border-b border-outline-variant whitespace-nowrap">
                       {h}
                     </th>
@@ -460,31 +504,33 @@ export default function KeanggotaanPage() {
                           dot
                         />
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1">
-                          <Link
-                            href={`/keanggotaan/${anggota.id}`}
-                            title="Lihat Profil"
-                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">person</span>
-                          </Link>
-                          <button
-                            onClick={() => handleEdit(anggota)}
-                            title="Edit"
-                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">edit_square</span>
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(anggota)}
-                            title="Hapus"
-                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                          </button>
-                        </div>
-                      </td>
+                      {isAdmin && (
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-1">
+                            <Link
+                              href={`/keanggotaan/${anggota.id}`}
+                              title="Lihat Profil"
+                              className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">person</span>
+                            </Link>
+                            <button
+                              onClick={() => handleEdit(anggota)}
+                              title="Edit"
+                              className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">edit_square</span>
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(anggota)}
+                              title="Hapus"
+                              className="p-1.5 rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">delete</span>
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}

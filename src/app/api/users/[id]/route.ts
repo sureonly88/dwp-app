@@ -2,15 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, verifySessionToken, isUserRole } from "@/lib/auth-token";
 import { getUserById, updateUser, deleteUser } from "@/lib/auth-db";
 import { hashPassword } from "@/lib/password";
+import { requireAdmin } from "@/lib/admin-auth";
 
 async function adminOnly(req: NextRequest) {
   const s = await verifySessionToken(req.cookies.get(AUTH_COOKIE_NAME)?.value);
   return s?.role === "admin" ? s : null;
 }
 
+async function adminOrOperator(req: NextRequest) {
+  const s = await verifySessionToken(req.cookies.get(AUTH_COOKIE_NAME)?.value);
+  return s && ["admin", "operator"].includes(s.role) ? s : null;
+}
+
 // GET /api/users/[id]
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await adminOnly(req);
+  const session = await adminOrOperator(req);
   if (!session) return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
 
   const { id } = await params;
@@ -36,6 +42,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (body.username !== undefined) updates.username = String(body.username).trim().toLowerCase();
   if (body.nama !== undefined) updates.nama = String(body.nama).trim();
   if (body.role !== undefined) {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     if (!isUserRole(body.role)) return NextResponse.json({ error: "Role tidak valid" }, { status: 400 });
     // Prevent removing the last admin
     if (existing.role === "admin" && body.role !== "admin") {
@@ -79,6 +87,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   // Prevent self-deletion
   if (session.id === userId) {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     return NextResponse.json({ error: "Tidak dapat menghapus akun sendiri" }, { status: 400 });
   }
 

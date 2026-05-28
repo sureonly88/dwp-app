@@ -109,6 +109,18 @@ export async function getUserById(id: number) {
   return rows[0] ?? null;
 }
 
+export async function getAuthUserById(id: number) {
+  await ensureAuthSchema();
+  const [rows] = await pool.execute<AuthUserRow[]>(
+    `SELECT id, username, nama, password_hash, role, aktif, anggota_id
+     FROM auth_users
+     WHERE id = ?
+     LIMIT 1`,
+    [id]
+  );
+  return rows[0] ?? null;
+}
+
 export async function createUser(data: {
   username: string;
   nama: string;

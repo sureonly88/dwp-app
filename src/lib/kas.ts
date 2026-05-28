@@ -18,7 +18,7 @@ export async function requireSession(req: NextRequest) {
 export async function requireAdmin(req: NextRequest) {
   const { session, response } = await requireSession(req);
   if (response) return { session: null, response };
-  if (session!.role !== "admin") {
+  if (session!.role !== "admin" && session!.role !== "operator") {
     return { session: null, response: NextResponse.json({ error: "Akses ditolak" }, { status: 403 }) };
   }
   return { session, response: null };

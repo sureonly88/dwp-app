@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { requireSession, generateSaleNumber, generateTransactionNumber } from "@/lib/kas";
 import type { RowDataPacket, ResultSetHeader, PoolConnection } from "mysql2/promise";
+import { requireAdmin } from "@/lib/admin-auth";
 
 interface SaleItemInput {
   item_name: string;
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
 
   let conn: PoolConnection | undefined;
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const body = await req.json();
     const saleDate = String(body.sale_date ?? "").trim();
     const buyerName = body.buyer_name ? String(body.buyer_name).trim() : null;

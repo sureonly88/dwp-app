@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { requireSession } from "@/lib/kas";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // GET /api/kas/transaksi/[id]
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -29,6 +30,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (response) return response;
 
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const [[trx]] = await pool.execute<RowDataPacket[]>(
       `SELECT status, source_type FROM cash_transactions WHERE id=?`, [id]
@@ -76,19 +79,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (response) return response;
 
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const [[trx]] = await pool.execute<RowDataPacket[]>(
       `SELECT status, created_by, source_type FROM cash_transactions WHERE id=?`, [id]
     );
     if (!trx) return NextResponse.json({ error: "Transaksi tidak ditemukan" }, { status: 404 });
 
-    if (session!.role !== "admin") {
-      if (trx.status === "approved") {
-        return NextResponse.json({ error: "Transaksi disetujui hanya bisa dibatalkan oleh admin" }, { status: 403 });
-      }
-      if (Number(trx.created_by) !== session!.id) {
-        return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
-      }
+    if (session!.role !== "admin" && trx.status === "approved") {
+      return NextResponse.json({ error: "Transaksi yang sudah disetujui tidak dapat dihapus" }, { status: 403 });
     }
 
     // Jika transaksi terkait penjualan, lepas linkage di sales (cascade SET NULL)

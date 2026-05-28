@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import { requireSession } from "@/lib/kas";
 import type { RowDataPacket } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
+import { requireAdmin } from "@/lib/admin-auth";
 
 // GET /api/kas/penjualan/[id]
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -35,6 +36,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   let conn: PoolConnection | undefined;
   try {
+    const { response } = await requireAdmin(req);
+    if (response) return response;
     const { id } = await params;
     const [[sale]] = await pool.execute<RowDataPacket[]>(
       `SELECT s.id, s.cash_trx_id, s.created_by, t.status AS cash_status
@@ -44,13 +47,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     );
     if (!sale) return NextResponse.json({ error: "Penjualan tidak ditemukan" }, { status: 404 });
 
-    if (session!.role !== "admin") {
-      if (sale.cash_status === "approved") {
-        return NextResponse.json({ error: "Transaksi kas sudah disetujui — minta admin untuk menghapus" }, { status: 403 });
-      }
-      if (Number(sale.created_by) !== session!.id) {
-        return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
-      }
+    if (session!.role !== "admin" && sale.cash_status === "approved") {
+      return NextResponse.json({ error: "Transaksi kas sudah disetujui dan tidak dapat dihapus" }, { status: 403 });
     }
 
     conn = await pool.getConnection();
