@@ -8,6 +8,9 @@ import Badge from "@/components/ui/Badge";
 import { FetchErrorBox } from "@/components/ui/FetchError";
 
 interface CategoryTotal { id: number; code: string; name: string; total: number }
+interface DanaIuran {
+  code: string; name: string; saldo_awal: number; total_pemasukan: number; total_pengeluaran: number; saldo_akhir: number;
+}
 interface PendingTrx {
   id: number; transaction_number: string; transaction_date: string;
   type: "income" | "expense"; amount: number; category_name: string; description: string | null;
@@ -17,6 +20,7 @@ interface DashData {
   bulan_ini: { total_income: number; total_expense: number; balance: number };
   pending_count: number;
   approved_count: number;
+  dana_iuran: DanaIuran[];
   trend_6_bulan: { ym: string; income: number; expense: number; net: number }[];
   top_pemasukan_bulan_ini: CategoryTotal[];
   top_pengeluaran_bulan_ini: CategoryTotal[];
@@ -44,7 +48,13 @@ export default function KasDashboardPage() {
     } catch { setFetchError(true); } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   return (
     <AppLayout>
@@ -114,6 +124,32 @@ export default function KasDashboardPage() {
             </div>
 
             {/* Trend bar chart (sederhana) */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <div>
+                  <h3 className="font-h3 text-h3 text-on-surface">Saldo Dana Iuran</h3>
+                  <p className="text-body-sm text-on-surface-variant">Akumulasi otomatis dari pemasukan iuran dan pengeluaran berdasarkan sumber dana.</p>
+                </div>
+              </div>
+              {data.dana_iuran.length === 0 ? (
+                <p className="text-body-sm text-on-surface-variant">Belum ada data dana iuran.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {data.dana_iuran.map((dana) => (
+                    <div key={dana.code} className="rounded-xl border border-outline-variant p-4 bg-surface-container-low">
+                      <p className="text-label-md text-on-surface mb-2">{dana.name}</p>
+                      <p className="font-h3 text-h3 text-primary mb-3">{fmt(dana.saldo_akhir)}</p>
+                      <div className="space-y-1 text-body-sm text-on-surface-variant">
+                        <div className="flex justify-between gap-3"><span>Saldo Sebelumnya</span><span>{fmt(dana.saldo_awal)}</span></div>
+                        <div className="flex justify-between gap-3"><span>Pemasukan</span><span className="text-tertiary">{fmt(dana.total_pemasukan)}</span></div>
+                        <div className="flex justify-between gap-3"><span>Pengeluaran</span><span className="text-error">{fmt(dana.total_pengeluaran)}</span></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
             <Card className="p-6">
               <h3 className="font-h3 text-h3 text-on-surface mb-4">Tren 6 Bulan Terakhir</h3>
               {data.trend_6_bulan.length === 0 ? (

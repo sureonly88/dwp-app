@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS anggota (
   alamat          TEXT          NULL,
   join_date       DATE          NOT NULL,
   tanggal_keluar  DATE          NULL,
+  tanggal_pensiun DATE          NULL,
   created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY  uniq_nip            (nip),

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { requireSession, generateTransactionNumber } from "@/lib/kas";
+import { ensureKasSourceFundColumn, requireSession, generateTransactionNumber, getAutoSourceFundByCategoryCode, isValidSourceFund } from "@/lib/kas";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
 
@@ -17,6 +17,8 @@ import { requireAdmin } from "@/lib/admin-auth";
 export async function GET(req: NextRequest) {
   const { response } = await requireSession(req);
   if (response) return response;
+
+  await ensureKasSourceFundColumn();
 
   const sp = new URL(req.url).searchParams;
   const where: string[] = [];
@@ -45,10 +47,10 @@ export async function GET(req: NextRequest) {
   );
 
   const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT t.id, t.transaction_number, t.transaction_date, t.type, t.category_id,
+      `SELECT t.id, t.transaction_number, t.transaction_date, t.type, t.category_id,
             c.name AS category_name, c.code AS category_code,
             t.amount, t.payment_method, t.description, t.reference_number,
-            t.attachment_url, t.status, t.source_type, t.source_id,
+            t.attachment_url, t.status, t.source_type, t.source_id, t.source_fund,
             t.created_by, cu.username AS created_by_username,
             t.approved_by, au.username AS approved_by_username,
             t.approved_at, t.created_at
@@ -74,6 +76,8 @@ export async function POST(req: NextRequest) {
   if (response) return response;
 
   try {
+    await ensureKasSourceFundColumn();
+
     const { response } = await requireAdmin(req);
     if (response) return response;
     const body = await req.json();
@@ -85,7 +89,7 @@ export async function POST(req: NextRequest) {
     const description = body.description ? String(body.description).trim() : null;
     const referenceNumber = body.reference_number ? String(body.reference_number).trim() : null;
     const attachmentUrl = body.attachment_url ? String(body.attachment_url).trim() : null;
-
+    const sourceFundRaw = body.source_fund;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return NextResponse.json({ error: "Tanggal tidak valid" }, { status: 400 });
     }
@@ -104,21 +108,26 @@ export async function POST(req: NextRequest) {
     if (cat.type !== type) {
       return NextResponse.json({ error: "Tipe kategori tidak sesuai" }, { status: 400 });
     }
-    // Cegah pembuatan manual dengan kategori sistem (iuran/penjualan) — harus via posting
-    if (cat.code === "IURAN_ANGGOTA" || cat.code === "IURAN_KONSUMSI_ANGGOTA" || cat.code === "IURAN_PENGURUS" || cat.code === "PENJUALAN_BARANG") {
+    // Kategori penjualan tetap hanya boleh dari modul Penjualan
+    if (cat.code === "PENJUALAN_BARANG") {
       return NextResponse.json({
-        error: "Kategori ini hanya bisa diposting otomatis dari modul terkait (Iuran / Penjualan)"
+        error: "Kategori ini hanya bisa diposting otomatis dari modul Penjualan"
       }, { status: 400 });
     }
+
+    const autoSourceFund = getAutoSourceFundByCategoryCode(String(cat.code));
+    const sourceFund = type === "expense"
+      ? (autoSourceFund ?? (isValidSourceFund(sourceFundRaw) ? sourceFundRaw : "umum"))
+      : null;
 
     const trxNumber = await generateTransactionNumber(date);
     const [r] = await pool.execute<ResultSetHeader>(
       `INSERT INTO cash_transactions
         (transaction_number, transaction_date, type, category_id, amount,
          payment_method, description, reference_number, attachment_url,
-         status, source_type, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?, 'pending', 'manual', ?)`,
-      [trxNumber, date, type, categoryId, amount, paymentMethod, description, referenceNumber, attachmentUrl, session!.id]
+         status, source_type, source_fund, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?, 'pending', 'manual', ?, ?)`,
+      [trxNumber, date, type, categoryId, amount, paymentMethod, description, referenceNumber, attachmentUrl, sourceFund, session!.id]
     );
 
     return NextResponse.json({ id: r.insertId, transaction_number: trxNumber }, { status: 201 });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { requireSession, getKasSummary } from "@/lib/kas";
+import { ensureKasSourceFundColumn, getDanaIuranBalances, requireSession, getKasSummary } from "@/lib/kas";
 import type { RowDataPacket } from "mysql2";
 
 // GET /api/kas/dashboard
@@ -8,6 +8,8 @@ import type { RowDataPacket } from "mysql2";
 export async function GET(req: NextRequest) {
   const { response } = await requireSession(req);
   if (response) return response;
+
+  await ensureKasSourceFundColumn();
 
   const now = new Date();
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -19,7 +21,7 @@ export async function GET(req: NextRequest) {
   const trendStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
   const trendStartStr = `${trendStart.getFullYear()}-${String(trendStart.getMonth() + 1).padStart(2, "0")}-01`;
 
-  const [allTime, monthSummary, trendRows, topIncome, topExpense, pending] = await Promise.all([
+  const [allTime, monthSummary, trendRows, topIncome, topExpense, pending, danaIuran] = await Promise.all([
     getKasSummary(),
     getKasSummary({ from: monthStart, to: monthEnd }),
     pool.execute<RowDataPacket[]>(
@@ -61,6 +63,7 @@ export async function GET(req: NextRequest) {
         ORDER BY t.transaction_date DESC, t.id DESC
         LIMIT 10`
     ).then(([r]) => r),
+    getDanaIuranBalances(),
   ]);
 
   return NextResponse.json({
@@ -68,6 +71,7 @@ export async function GET(req: NextRequest) {
     bulan_ini: monthSummary,
     pending_count: allTime.pending_count,
     approved_count: allTime.approved_count,
+    dana_iuran: danaIuran,
     trend_6_bulan: trendRows.map((r) => ({
       ym: r.ym,
       income: Number(r.income),

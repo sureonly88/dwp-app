@@ -23,6 +23,7 @@ interface Anggota {
   alamat: string | null;
   join_date: string;
   tanggal_keluar: string | null;
+  tanggal_pensiun: string | null;
 }
 
 interface ApiResponse {
@@ -161,6 +162,7 @@ export default function KeanggotaanPage() {
       alamat: anggota.alamat ?? "",
       join_date: anggota.join_date?.split("T")[0] ?? "",
       tanggal_keluar: anggota.tanggal_keluar ? anggota.tanggal_keluar.split("T")[0] : "",
+      tanggal_pensiun: anggota.tanggal_pensiun ? anggota.tanggal_pensiun.split("T")[0] : "",
     });
     setModal("edit");
   };
@@ -216,8 +218,8 @@ export default function KeanggotaanPage() {
   };
 
   const downloadImportTemplate = () => {
-    const header = ["nama", "nip", "jabatan", "unit_kerja", "status", "no_hp", "email", "alamat", "join_date", "tanggal_keluar"];
-    const sample = ["Ibu Siti Aminah", "198205122010012001", "Anggota", "Sekretariat", "Aktif", "08123456789", "siti@example.com", "Alamat lengkap", new Date().toISOString().slice(0, 10), ""];
+    const header = ["nama", "nip", "jabatan", "unit_kerja", "status", "no_hp", "email", "alamat", "join_date", "tanggal_keluar", "tanggal_pensiun"];
+    const sample = ["Ibu Siti Aminah", "198205122010012001", "Anggota", "Sekretariat", "Aktif", "08123456789", "siti@example.com", "Alamat lengkap", new Date().toISOString().slice(0, 10), "", ""];
     const csv = [header, sample].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);

@@ -6,12 +6,29 @@ import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { FetchErrorRow } from "@/components/ui/FetchError";
 
+type SourceFundCode = "umum" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
+
+const SOURCE_FUND_OPTIONS: { code: SourceFundCode; label: string }[] = [
+  { code: "umum", label: "Umum" },
+  { code: "iuran_anggota", label: "Iuran Arisan Anggota" },
+  { code: "iuran_konsumsi_anggota", label: "Iuran Konsumsi Anggota" },
+  { code: "iuran_pengurus", label: "Iuran Pengurus" },
+];
+
+const getSourceFundLabel = (code?: string | null) => SOURCE_FUND_OPTIONS.find((item) => item.code === code)?.label ?? "Umum";
+const getAutoSourceFundByCategoryCode = (categoryCode?: string | null): SourceFundCode | null => {
+  if (categoryCode === "ARISAN_ANGGOTA") return "iuran_anggota";
+  if (categoryCode === "ARISAN_PENGURUS") return "iuran_pengurus";
+  return null;
+};
+
 interface Trx {
   id: number; transaction_number: string; transaction_date: string;
   type: "income" | "expense"; category_id: number; category_name: string; category_code: string;
   amount: number | string; payment_method: string; description: string | null;
   reference_number: string | null; status: "draft" | "pending" | "approved" | "rejected" | "cancelled";
   source_type: string | null; source_id: string | null;
+  source_fund?: SourceFundCode | null;
   created_by_username: string | null; approved_by_username: string | null;
 }
 interface Category { id: number; code: string; name: string; type: "income" | "expense" }
@@ -27,6 +44,7 @@ const PAY_METHODS = ["Tunai", "Transfer", "QRIS", "Lainnya"] as const;
 const emptyForm = {
   id: 0, transaction_date: today(), type: "expense" as "income" | "expense",
   category_id: 0, amount: "", payment_method: "Tunai" as string, description: "", reference_number: "",
+  source_fund: "umum" as SourceFundCode,
 };
 
 export default function KasTransaksiPage() {
@@ -97,7 +115,11 @@ export default function KasTransaksiPage() {
     return () => window.clearTimeout(timeout);
   }, [load]);
 
-  const filteredCategories = categories.filter((c) => c.type === form.type && c.code !== "IURAN_ANGGOTA" && c.code !== "IURAN_PENGURUS" && c.code !== "PENJUALAN_BARANG");
+  const filteredCategories = categories.filter((c) => c.type === form.type && c.code !== "PENJUALAN_BARANG");
+  const selectedCategory = categories.find((c) => c.id === form.category_id) ?? null;
+  const lockedSourceFund = form.type === "expense"
+    ? getAutoSourceFundByCategoryCode(selectedCategory?.code)
+    : null;
 
   const openAdd = () => { setForm(emptyForm); setModal("add"); };
   const openEdit = (t: Trx) => {
@@ -105,6 +127,7 @@ export default function KasTransaksiPage() {
       id: t.id, transaction_date: t.transaction_date, type: t.type,
       category_id: t.category_id, amount: String(t.amount),
       payment_method: t.payment_method, description: t.description ?? "", reference_number: t.reference_number ?? "",
+      source_fund: t.source_fund ?? "umum",
     });
     setModal("edit");
   };
@@ -122,6 +145,7 @@ export default function KasTransaksiPage() {
         transaction_date: form.transaction_date, type: form.type, category_id: form.category_id,
         amount, payment_method: form.payment_method,
         description: form.description, reference_number: form.reference_number,
+        source_fund: form.type === "expense" ? form.source_fund : null,
       })});
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -241,6 +265,7 @@ export default function KasTransaksiPage() {
                   <th className="px-4 py-3">Tanggal</th>
                   <th className="px-4 py-3">Tipe</th>
                   <th className="px-4 py-3">Kategori</th>
+                      <th className="px-4 py-3">Sumber Dana</th>
                   <th className="px-4 py-3 text-right">Nominal</th>
                   <th className="px-4 py-3">Metode</th>
                   <th className="px-4 py-3">Deskripsi</th>
@@ -250,11 +275,11 @@ export default function KasTransaksiPage() {
               </thead>
               <tbody className="divide-y divide-outline-variant">
                 {fetchError ? (
-                  <FetchErrorRow colSpan={9} onRetry={load} />
+                  <FetchErrorRow colSpan={10} onRetry={load} />
                 ) : loading ? (
-                  <tr><td colSpan={9} className="px-6 py-12 text-center text-on-surface-variant">Memuat...</td></tr>
+                  <tr><td colSpan={10} className="px-6 py-12 text-center text-on-surface-variant">Memuat...</td></tr>
                 ) : data.length === 0 ? (
-                  <tr><td colSpan={9} className="px-6 py-12 text-center text-on-surface-variant">
+                  <tr><td colSpan={10} className="px-6 py-12 text-center text-on-surface-variant">
                     <span className="material-symbols-outlined text-[40px] block mb-2 opacity-30">receipt_long</span>
                     Belum ada transaksi sesuai filter.
                   </td></tr>
@@ -271,6 +296,9 @@ export default function KasTransaksiPage() {
                       {t.source_type && t.source_type !== "manual" && (
                         <div className="text-[10px] text-on-surface-variant mt-0.5 uppercase">via {t.source_type}</div>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-on-surface-variant whitespace-nowrap">
+                      {t.type === "expense" ? getSourceFundLabel(t.source_fund) : "-"}
                     </td>
                     <td className={`px-4 py-3 text-right font-label-md whitespace-nowrap ${t.type === "income" ? "text-tertiary" : "text-error"}`}>
                       {fmt(t.amount)}
@@ -335,6 +363,21 @@ export default function KasTransaksiPage() {
                     ))}
                   </select>
                 </label>
+                {form.type === "expense" && (
+                  <label className="text-label-sm text-on-surface-variant col-span-2">Sumber Dana
+                    <select value={lockedSourceFund ?? form.source_fund} onChange={(e) => setForm({ ...form, source_fund: e.target.value as SourceFundCode })}
+                      disabled={Boolean(lockedSourceFund)}
+                      style={{ paddingTop: '10px', paddingBottom: '10px' }}
+                      className="mt-1 appearance-none w-full px-3 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none text-on-surface disabled:opacity-70">
+                      {SOURCE_FUND_OPTIONS.map((item) => (
+                        <option key={item.code} value={item.code}>{item.label}</option>
+                      ))}
+                    </select>
+                    {lockedSourceFund && (
+                      <p className="mt-1 text-[11px] text-on-surface-variant">Sumber dana dikunci otomatis mengikuti kategori pengeluaran arisan.</p>
+                    )}
+                  </label>
+                )}
                 <label className="text-label-sm text-on-surface-variant col-span-1">Nominal (Rp)
                   <input type="number" min={0} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })}
                     className="mt-1 w-full px-3 py-2.5 border border-outline-variant rounded-lg bg-surface text-body-sm text-on-surface focus:border-primary focus:outline-none" />

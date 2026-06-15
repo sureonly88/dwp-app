@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { requireSession } from "@/lib/kas";
+import { ensureKasSourceFundColumn, getDanaIuranBalances, requireSession } from "@/lib/kas";
 import type { RowDataPacket } from "mysql2";
 
+const BULAN_LABELS = [
+  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+  "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+];
+
 // GET /api/kas/laporan?bulan=5&tahun=2026
-// Laporan kas bulanan: saldo awal, total per kategori income/expense, daftar transaksi, saldo akhir
+// Laporan kas bulanan: saldo awal, total per kategori income/expense, daftar transaksi, saldo akhir.
+// Hanya transaksi yang sudah disetujui yang mempengaruhi saldo, termasuk posting iuran.
 export async function GET(req: NextRequest) {
   const { response } = await requireSession(req);
   if (response) return response;
+
+  await ensureKasSourceFundColumn();
 
   const sp = new URL(req.url).searchParams;
   const bulan = Math.max(1, Math.min(12, parseInt(sp.get("bulan") ?? `${new Date().getMonth() + 1}`, 10)));
@@ -27,12 +35,9 @@ export async function GET(req: NextRequest) {
       WHERE code='IURAN_ANGGOTA'`
   );
 
-  const reportableStatusSql = `(
-    t.status='approved'
-    OR (t.status='pending' AND t.source_type IN ('iuran_anggota','iuran_konsumsi_anggota','iuran_pengurus'))
-  )`;
+  const reportableStatusSql = `t.status='approved'`;
 
-  const [[awal], catIncome, catExpense, daftar] = await Promise.all([
+  const [[awal], catIncome, catExpense, daftar, danaIuran] = await Promise.all([
     pool.execute<RowDataPacket[]>(
       `SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0)
             - COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS saldo_awal
@@ -66,7 +71,7 @@ export async function GET(req: NextRequest) {
     ).then(([r]) => r),
     pool.execute<RowDataPacket[]>(
       `SELECT t.id, t.transaction_number, t.transaction_date, t.type, t.amount, t.status,
-              t.description, t.payment_method, t.reference_number,
+              t.description, t.payment_method, t.reference_number, t.source_fund,
               c.name AS category_name
          FROM cash_transactions t
          INNER JOIN cash_categories c ON c.id = t.category_id
@@ -74,6 +79,7 @@ export async function GET(req: NextRequest) {
         ORDER BY t.transaction_date ASC, t.id ASC`,
       [monthStart, monthEnd]
     ).then(([r]) => r),
+    getDanaIuranBalances({ from: monthStart, to: monthEnd }),
   ]);
 
   const totalIncome = catIncome.reduce((s, r) => s + Number(r.total), 0);
@@ -82,11 +88,18 @@ export async function GET(req: NextRequest) {
   const saldoAkhir = saldoAwal + totalIncome - totalExpense;
 
   return NextResponse.json({
-    periode: { bulan, tahun, awal: monthStart, akhir: monthEnd },
+    periode: {
+      bulan,
+      tahun,
+      awal: monthStart,
+      akhir: monthEnd,
+      label: `${BULAN_LABELS[bulan - 1]} ${tahun}`,
+    },
     saldo_awal: saldoAwal,
     saldo_akhir: saldoAkhir,
     total_income: totalIncome,
     total_expense: totalExpense,
+    dana_iuran: danaIuran,
     rekap_pemasukan: catIncome.map((r) => ({ id: r.id, code: r.code, name: r.name, total: Number(r.total), jumlah: Number(r.jumlah) })),
     rekap_pengeluaran: catExpense.map((r) => ({ id: r.id, code: r.code, name: r.name, total: Number(r.total), jumlah: Number(r.jumlah) })),
     transaksi: daftar,

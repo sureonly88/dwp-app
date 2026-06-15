@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { requireSession, requireAdmin } from "@/lib/kas";
+import { ensureKasExpenseCategories, requireSession, requireAdmin } from "@/lib/kas";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 
 interface CategoryRow extends RowDataPacket {
@@ -17,6 +17,8 @@ interface CategoryRow extends RowDataPacket {
 export async function GET(req: NextRequest) {
   const { response } = await requireSession(req);
   if (response) return response;
+
+  await ensureKasExpenseCategories();
 
   const sp = new URL(req.url).searchParams;
   const type = sp.get("type");

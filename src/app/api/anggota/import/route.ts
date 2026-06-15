@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import type { ResultSetHeader } from "mysql2";
 import * as XLSX from "xlsx";
 import { requireAdmin } from "@/lib/admin-auth";
+import { ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
 
 type AnggotaStatus = "Aktif" | "Non-Aktif" | "Cuti";
 
@@ -17,6 +18,7 @@ interface ImportRow {
   alamat: string | null;
   join_date: string;
   tanggal_keluar: string | null;
+  tanggal_pensiun: string | null;
 }
 
 interface ImportErrorItem {
@@ -51,6 +53,8 @@ const COLUMN_ALIASES: Record<string, keyof ImportRow> = {
   "join date": "join_date",
   "tanggal keluar": "tanggal_keluar",
   tanggal_keluar: "tanggal_keluar",
+  "tanggal pensiun": "tanggal_pensiun",
+  tanggal_pensiun: "tanggal_pensiun",
 };
 
 function normalizeHeader(value: unknown) {
@@ -106,6 +110,8 @@ function isBlankRow(row: unknown[]) {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureAnggotaTanggalPensiunColumn();
+
     const { response } = await requireAdmin(req);
     if (response) return response;
     const formData = await req.formData();
@@ -166,6 +172,7 @@ export async function POST(req: NextRequest) {
       const status = normalizeStatus(record.status);
       const joinDate = normalizeDate(record.join_date) ?? new Date().toISOString().slice(0, 10);
       const tanggalKeluar = normalizeDate(record.tanggal_keluar);
+      const tanggalPensiun = normalizeDate(record.tanggal_pensiun);
 
       if (!nama || !nip || !jabatan || !unitKerja) {
         errors.push({ row: excelRowNumber, message: "Nama, NIP, jabatan, dan unit_kerja wajib diisi" });
@@ -196,6 +203,7 @@ export async function POST(req: NextRequest) {
         alamat: cellToString(record.alamat) || null,
         join_date: joinDate,
         tanggal_keluar: tanggalKeluar,
+        tanggal_pensiun: tanggalPensiun,
       });
     });
 
@@ -208,8 +216,8 @@ export async function POST(req: NextRequest) {
 
     for (const row of validRows) {
       const [result] = await pool.execute<ResultSetHeader>(
-        `INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar, tanggal_pensiun)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            nama = VALUES(nama),
            jabatan = VALUES(jabatan),
@@ -219,7 +227,8 @@ export async function POST(req: NextRequest) {
            email = VALUES(email),
            alamat = VALUES(alamat),
            join_date = VALUES(join_date),
-           tanggal_keluar = VALUES(tanggal_keluar)`,
+           tanggal_keluar = VALUES(tanggal_keluar),
+           tanggal_pensiun = VALUES(tanggal_pensiun)`,
         [
           row.nama,
           row.nip,
@@ -231,6 +240,7 @@ export async function POST(req: NextRequest) {
           row.alamat,
           row.join_date,
           row.tanggal_keluar,
+          row.tanggal_pensiun,
         ]
       );
 

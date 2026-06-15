@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
+import { ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
 
 export interface AnggotaRow extends RowDataPacket {
   id: number;
@@ -14,6 +15,8 @@ export interface AnggotaRow extends RowDataPacket {
   email: string | null;
   alamat: string | null;
   join_date: string;
+  tanggal_keluar: string | null;
+  tanggal_pensiun: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -34,6 +37,8 @@ function applyJenisFilter(jenis: string, conditions: string[]) {
 // GET /api/anggota?search=&status=&unit=&jenis=&page=&limit=
 export async function GET(req: NextRequest) {
   try {
+    await ensureAnggotaTanggalPensiunColumn();
+
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") ?? "";
     const status = searchParams.get("status") ?? "";
@@ -84,18 +89,20 @@ export async function GET(req: NextRequest) {
 // POST /api/anggota
 export async function POST(req: NextRequest) {
   try {
+    await ensureAnggotaTanggalPensiunColumn();
+
     const { response } = await requireAdmin(req);
     if (response) return response;
     const body = await req.json();
-    const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar } = body;
+    const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar, tanggal_pensiun } = body;
 
     if (!nama || !nip || !jabatan || !unit_kerja) {
       return NextResponse.json({ error: "Field wajib tidak lengkap" }, { status: 400 });
     }
 
     const [result] = await pool.execute<ResultSetHeader>(
-      `INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar, tanggal_pensiun)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nama,
         nip,
@@ -107,6 +114,7 @@ export async function POST(req: NextRequest) {
         alamat ?? null,
         join_date ?? new Date().toISOString().split("T")[0],
         tanggal_keluar ? String(tanggal_keluar).slice(0, 10) : null,
+        tanggal_pensiun ? String(tanggal_pensiun).slice(0, 10) : null,
       ]
     );
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { requireSession } from "@/lib/kas";
+import { ensureKasSourceFundColumn, getDanaIuranBalances, getSourceFundLabel, requireSession } from "@/lib/kas";
 import type { RowDataPacket } from "mysql2";
 
 // GET /api/kas/buku?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -8,6 +8,8 @@ import type { RowDataPacket } from "mysql2";
 export async function GET(req: NextRequest) {
   const { response } = await requireSession(req);
   if (response) return response;
+
+  await ensureKasSourceFundColumn();
 
   const sp = new URL(req.url).searchParams;
   const from = sp.get("from");
@@ -32,17 +34,20 @@ export async function GET(req: NextRequest) {
     saldoAwal = Number(row.saldo);
   }
 
-  const [rows] = await pool.execute<RowDataPacket[]>(
+  const [rows, danaIuran] = await Promise.all([
+    pool.execute<RowDataPacket[]>(
     `SELECT t.id, t.transaction_number, t.transaction_date, t.type, t.amount,
             t.description, t.payment_method, t.reference_number,
             c.name AS category_name, c.code AS category_code,
-            t.source_type
+            t.source_type, t.source_fund
        FROM cash_transactions t
        INNER JOIN cash_categories c ON c.id = t.category_id
        WHERE ${where.join(" AND ")}
        ORDER BY t.transaction_date ASC, t.id ASC`,
     args
-  );
+    ).then(([result]) => result),
+    getDanaIuranBalances({ from: from ?? undefined, to: to ?? undefined }),
+  ]);
 
   let running = saldoAwal;
   const data = rows.map((r) => {
@@ -61,6 +66,8 @@ export async function GET(req: NextRequest) {
       payment_method: r.payment_method,
       reference_number: r.reference_number,
       source_type: r.source_type,
+      source_fund: r.source_fund,
+      source_fund_label: getSourceFundLabel(r.source_fund),
       debit,
       kredit,
       saldo: running,
@@ -75,6 +82,7 @@ export async function GET(req: NextRequest) {
     saldo_akhir: running,
     total_debit: totalDebit,
     total_kredit: totalKredit,
+    dana_iuran: danaIuran,
     data,
   });
 }

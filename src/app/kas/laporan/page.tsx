@@ -7,13 +7,15 @@ import Badge from "@/components/ui/Badge";
 import { FetchErrorBox } from "@/components/ui/FetchError";
 
 interface Rekap { id: number; code: string; name: string; total: number }
+interface DanaIuran { code: string; name: string; saldo_awal: number; total_pemasukan: number; total_pengeluaran: number; saldo_akhir: number }
 interface Trx {
   id: number; transaction_number: string; transaction_date: string;
-  type: "income" | "expense"; category_name: string; amount: number; status: string; description: string | null;
+  type: "income" | "expense"; category_name: string; amount: number; status: string; description: string | null; source_fund?: string | null;
 }
 interface Lap {
   periode: { bulan: number; tahun: number; awal: string; akhir: string; label: string };
   saldo_awal: number; saldo_akhir: number; total_income: number; total_expense: number;
+  dana_iuran: DanaIuran[];
   rekap_pemasukan: Rekap[]; rekap_pengeluaran: Rekap[]; transaksi: Trx[];
 }
 
@@ -28,8 +30,10 @@ export default function LaporanKasPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true); setFetchError(false);
+  const load = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    if (!silent) setLoading(true);
+    setFetchError(false);
     try {
       const res = await fetch(`/api/kas/laporan?bulan=${bulan}&tahun=${tahun}`);
       if (res.status === 401) { window.location.href = "/login"; return; }
@@ -38,17 +42,27 @@ export default function LaporanKasPage() {
     } catch { setFetchError(true); } finally { setLoading(false); }
   }, [bulan, tahun]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void load({ silent: true });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   const exportCsv = () => {
     if (!data) return;
     const lines: string[][] = [];
     lines.push(["LAPORAN KAS BULANAN"]);
     lines.push(["Periode", data.periode.label]);
-    lines.push(["Saldo Awal", String(data.saldo_awal)]);
+    lines.push(["Total Saldo Awal", String(data.saldo_awal)]);
     lines.push(["Total Pemasukan", String(data.total_income)]);
     lines.push(["Total Pengeluaran", String(data.total_expense)]);
     lines.push(["Saldo Akhir", String(data.saldo_akhir)]);
+    lines.push([""]);
+    lines.push(["SALDO DANA IURAN"]);
+    lines.push(["Dana", "Saldo Awal", "Pemasukan", "Pengeluaran", "Saldo Akhir"]);
+    data.dana_iuran.forEach((d) => lines.push([d.name, String(d.saldo_awal), String(d.total_pemasukan), String(d.total_pengeluaran), String(d.saldo_akhir)]));
     lines.push([""]);
     lines.push(["REKAP PEMASUKAN"]);
     lines.push(["Kategori", "Total"]);
@@ -58,7 +72,7 @@ export default function LaporanKasPage() {
     lines.push(["Kategori", "Total"]);
     data.rekap_pengeluaran.forEach((r) => lines.push([r.name, String(r.total)]));
     lines.push([""]);
-    lines.push(["DETAIL TRANSAKSI (DISETUJUI + POSTING IURAN)"]);
+    lines.push(["DETAIL TRANSAKSI DISETUJUI"]);
     lines.push(["Tanggal", "Nomor", "Tipe", "Kategori", "Deskripsi", "Nominal"]);
     data.transaksi.forEach((t) => lines.push([t.transaction_date, t.transaction_number, t.type, t.category_name, t.description ?? "", String(t.amount)]));
     const csv = lines.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -74,7 +88,7 @@ export default function LaporanKasPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 className="font-h2 text-h2 text-primary">Laporan Kas Bulanan</h2>
-            <p className="text-body-sm text-on-surface-variant">Ringkasan keuangan periode bulanan (transaksi disetujui dan posting iuran otomatis).</p>
+            <p className="text-body-sm text-on-surface-variant">Ringkasan keuangan periode bulanan. Saldo hanya bertambah dari transaksi yang sudah disetujui, termasuk posting iuran yang telah di-approve.</p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => window.print()} className="px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl font-label-md inline-flex items-center gap-2 hover:bg-surface-container">
@@ -113,11 +127,30 @@ export default function LaporanKasPage() {
               <h3 className="font-h3 text-h3 text-primary text-center mb-1">Laporan Kas DWP</h3>
               <p className="text-body-sm text-on-surface-variant text-center mb-5">Periode {data.periode.label}</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Saldo Awal</p><p className="font-h3 text-h3">{fmt(data.saldo_awal)}</p></div>
+                <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Total Saldo Awal</p><p className="font-h3 text-h3">{fmt(data.saldo_awal)}</p></div>
                 <div className="p-4 bg-tertiary-container/30 rounded-xl"><p className="text-label-sm text-on-surface-variant">Pemasukan</p><p className="font-h3 text-h3 text-tertiary">{fmt(data.total_income)}</p></div>
                 <div className="p-4 bg-error-container/30 rounded-xl"><p className="text-label-sm text-on-surface-variant">Pengeluaran</p><p className="font-h3 text-h3 text-error">{fmt(data.total_expense)}</p></div>
                 <div className="p-4 bg-primary-container/30 rounded-xl"><p className="text-label-sm text-on-surface-variant">Saldo Akhir</p><p className="font-h3 text-h3 text-primary">{fmt(data.saldo_akhir)}</p></div>
               </div>
+            </Card>
+
+            <Card className="p-6">
+              <h4 className="font-label-md text-on-surface uppercase tracking-wide mb-3">Saldo Dana Iuran</h4>
+              {data.dana_iuran.length === 0 ? <p className="text-body-sm text-on-surface-variant">Tidak ada.</p> : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {data.dana_iuran.map((d) => (
+                    <div key={d.code} className="rounded-xl border border-outline-variant p-4 bg-surface-container-low">
+                      <p className="text-label-md text-on-surface mb-1">{d.name}</p>
+                      <p className="font-h3 text-h3 text-primary mb-2">{fmt(d.saldo_akhir)}</p>
+                      <div className="space-y-1 text-body-sm text-on-surface-variant">
+                        <div className="flex justify-between gap-3"><span>Saldo Awal</span><span>{fmt(d.saldo_awal)}</span></div>
+                        <div className="flex justify-between gap-3"><span>Pemasukan</span><span className="text-tertiary">{fmt(d.total_pemasukan)}</span></div>
+                        <div className="flex justify-between gap-3"><span>Pengeluaran</span><span className="text-error">{fmt(d.total_pengeluaran)}</span></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -163,7 +196,7 @@ export default function LaporanKasPage() {
 
             <Card>
               <div className="p-4 border-b border-outline-variant">
-                <h4 className="font-label-md text-on-surface uppercase tracking-wide">Detail Transaksi Disetujui + Posting Iuran</h4>
+                <h4 className="font-label-md text-on-surface uppercase tracking-wide">Detail Transaksi Disetujui</h4>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">

@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS cash_transactions (
   status              ENUM('draft','pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending',
   source_type         VARCHAR(40)  NULL,    -- 'iuran_anggota' | 'iuran_pengurus' | 'sale' | 'manual' | ...
   source_id           VARCHAR(80)  NULL,    -- e.g. '2026-05' for iuran rekap, sale.id for sale
+  source_fund         VARCHAR(40)  NULL,    -- 'umum' | 'iuran_anggota' | 'iuran_konsumsi_anggota' | 'iuran_pengurus'
   notes              VARCHAR(500) NULL,
   created_by          INT UNSIGNED NULL,
   approved_by         INT UNSIGNED NULL,
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS cash_transactions (
   UNIQUE KEY uniq_cash_trx_source (source_type, source_id),
   KEY idx_cash_trx_date (transaction_date),
   KEY idx_cash_trx_status_type (status, type),
+  KEY idx_cash_trx_source_fund (source_fund),
   KEY idx_cash_trx_category (category_id),
   CONSTRAINT fk_cash_trx_category FOREIGN KEY (category_id) REFERENCES cash_categories(id),
   CONSTRAINT fk_cash_trx_created_by FOREIGN KEY (created_by) REFERENCES auth_users(id) ON DELETE SET NULL,
@@ -98,6 +100,8 @@ INSERT IGNORE INTO cash_categories (code, name, type, is_system, description) VA
   ('KEGIATAN',          'Biaya Kegiatan',         'expense', 0, 'Pengeluaran terkait kegiatan'),
   ('OPERASIONAL',       'Operasional',            'expense', 0, 'ATK, listrik, internet, dll'),
   ('PEMBELIAN_BARANG',  'Pembelian Barang',       'expense', 0, 'Pembelian inventaris/perlengkapan'),
+  ('ARISAN_ANGGOTA',    'Arisan Anggota',         'expense', 0, 'Pengeluaran untuk dana arisan anggota'),
+  ('ARISAN_PENGURUS',   'Arisan Pengurus',        'expense', 0, 'Pengeluaran untuk dana arisan pengurus'),
   ('BANTUAN_SOSIAL',    'Bantuan Sosial',         'expense', 0, 'Bantuan ke anggota / masyarakat'),
   ('KONSUMSI',          'Konsumsi',               'expense', 0, 'Konsumsi rapat / kegiatan'),
   ('PENGELUARAN_LAIN',  'Pengeluaran Lain-lain',  'expense', 0, 'Pengeluaran tidak terkategori');

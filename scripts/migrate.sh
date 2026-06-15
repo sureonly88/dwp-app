@@ -62,6 +62,9 @@ run_sql "$SCRIPTS_DIR/setup-kegiatan.sql"
 # 4. Iuran (juga ALTER TABLE anggota add tanggal_keluar)
 run_sql "$SCRIPTS_DIR/setup-iuran.sql"
 
+# 4b. Tambah kolom tanggal_pensiun pada anggota
+run_sql "$SCRIPTS_DIR/migrate-anggota-tanggal-pensiun.sql"
+
 # 5. Arisan & doorprize
 run_sql "$SCRIPTS_DIR/setup-undian.sql"
 
@@ -74,10 +77,13 @@ run_sql "$SCRIPTS_DIR/migrate-presensi-tamu-foto.sql"
 # 8. Sistem Kas (cash management)
 run_sql "$SCRIPTS_DIR/setup-kas.sql"
 
-# 9. Seed data awal (idempotent)
+# 9. Penambahan sumber dana transaksi kas
+run_sql "$SCRIPTS_DIR/migrate-kas-source-fund.sql"
+
+# 10. Seed data awal (idempotent)
 run_sql "$SCRIPTS_DIR/seed.sql"
 
-# 10. Pengaturan organisasi
+# 11. Pengaturan organisasi
 run_sql "$SCRIPTS_DIR/setup-settings.sql"
 
 echo "[migrate] ✓ Semua migration berhasil dijalankan."

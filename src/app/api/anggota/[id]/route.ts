@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
+import { ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
 
 // GET /api/anggota/[id]
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await ensureAnggotaTanggalPensiunColumn();
+
     const { id } = await params;
     const [rows] = await pool.execute<RowDataPacket[]>(
       "SELECT * FROM anggota WHERE id = ?",
@@ -24,20 +27,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // PUT /api/anggota/[id]
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await ensureAnggotaTanggalPensiunColumn();
+
     const { response } = await requireAdmin(req);
     if (response) return response;
     const { id } = await params;
     const body = await req.json();
-    const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar } = body;
+    const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar, tanggal_pensiun } = body;
 
     if (!nama || !nip || !jabatan || !unit_kerja) {
       return NextResponse.json({ error: "Field wajib tidak lengkap" }, { status: 400 });
     }
 
     const [result] = await pool.execute<ResultSetHeader>(
-      `UPDATE anggota SET nama=?, nip=?, jabatan=?, unit_kerja=?, status=?, no_hp=?, email=?, alamat=?, join_date=?, tanggal_keluar=?
+      `UPDATE anggota SET nama=?, nip=?, jabatan=?, unit_kerja=?, status=?, no_hp=?, email=?, alamat=?, join_date=?, tanggal_keluar=?, tanggal_pensiun=?
        WHERE id=?`,
-      [nama, nip, jabatan, unit_kerja, status ?? "Aktif", no_hp ?? null, email ?? null, alamat ?? null, join_date, tanggal_keluar ? String(tanggal_keluar).slice(0, 10) : null, id]
+      [nama, nip, jabatan, unit_kerja, status ?? "Aktif", no_hp ?? null, email ?? null, alamat ?? null, join_date, tanggal_keluar ? String(tanggal_keluar).slice(0, 10) : null, tanggal_pensiun ? String(tanggal_pensiun).slice(0, 10) : null, id]
     );
 
     if (result.affectedRows === 0) {

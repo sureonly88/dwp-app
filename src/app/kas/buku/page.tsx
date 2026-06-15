@@ -8,11 +8,16 @@ import { FetchErrorBox } from "@/components/ui/FetchError";
 interface Row {
   id: number; transaction_number: string; transaction_date: string;
   type: "income" | "expense"; category_name: string; description: string | null;
+  source_fund?: string | null; source_fund_label?: string;
   debit: number; kredit: number; saldo: number;
+}
+interface DanaIuran {
+  code: string; name: string; saldo_awal: number; total_pemasukan: number; total_pengeluaran: number; saldo_akhir: number;
 }
 interface BukuData {
   from: string; to: string;
   saldo_awal: number; saldo_akhir: number; total_debit: number; total_kredit: number;
+  dana_iuran: DanaIuran[];
   data: Row[];
 }
 
@@ -27,8 +32,10 @@ export default function BukuKasPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true); setFetchError(false);
+  const load = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    if (!silent) setLoading(true);
+    setFetchError(false);
     try {
       const params = new URLSearchParams({ from, to });
       const res = await fetch(`/api/kas/buku?${params}`);
@@ -38,12 +45,18 @@ export default function BukuKasPage() {
     } catch { setFetchError(true); } finally { setLoading(false); }
   }, [from, to]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void load({ silent: true });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   const exportCsv = () => {
     if (!data) return;
     const header = ["Tanggal", "Nomor", "Kategori", "Keterangan", "Debit", "Kredit", "Saldo"];
-    const rows: string[][] = [["", "", "Saldo Awal", "", "", "", String(data.saldo_awal)]];
+    const rows: string[][] = [["", "", "Total Saldo Awal", "", "", "", String(data.saldo_awal)]];
     for (const r of data.data) {
       rows.push([r.transaction_date, r.transaction_number, r.category_name, r.description ?? "", String(r.debit), String(r.kredit), String(r.saldo)]);
     }
@@ -88,8 +101,22 @@ export default function BukuKasPage() {
             <p className="py-12 text-center text-on-surface-variant">Memuat...</p>
           ) : (
             <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border-b border-outline-variant">
+                {data.dana_iuran.map((dana) => (
+                  <div key={dana.code} className="rounded-xl bg-surface-container-low p-4">
+                    <p className="text-label-md text-on-surface mb-1">{dana.name}</p>
+                    <p className="font-h3 text-h3 text-primary mb-2">{fmt(dana.saldo_akhir)}</p>
+                    <div className="space-y-1 text-body-sm text-on-surface-variant">
+                      <div className="flex justify-between gap-3"><span>Saldo awal</span><span>{fmt(dana.saldo_awal)}</span></div>
+                      <div className="flex justify-between gap-3"><span>Masuk</span><span className="text-tertiary">{fmt(dana.total_pemasukan)}</span></div>
+                      <div className="flex justify-between gap-3"><span>Keluar</span><span className="text-error">{fmt(dana.total_pengeluaran)}</span></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-surface-container-low">
-                <div><p className="text-label-sm text-on-surface-variant">Saldo Awal</p><p className="font-h3 text-h3">{fmt(data.saldo_awal)}</p></div>
+                <div><p className="text-label-sm text-on-surface-variant">Total Saldo Awal</p><p className="font-h3 text-h3">{fmt(data.saldo_awal)}</p></div>
                 <div><p className="text-label-sm text-on-surface-variant">Total Debit</p><p className="font-h3 text-h3 text-tertiary">{fmt(data.total_debit)}</p></div>
                 <div><p className="text-label-sm text-on-surface-variant">Total Kredit</p><p className="font-h3 text-h3 text-error">{fmt(data.total_kredit)}</p></div>
                 <div><p className="text-label-sm text-on-surface-variant">Saldo Akhir</p><p className="font-h3 text-h3 text-primary">{fmt(data.saldo_akhir)}</p></div>
@@ -102,6 +129,7 @@ export default function BukuKasPage() {
                       <th className="px-4 py-3">Tanggal</th>
                       <th className="px-4 py-3">Nomor</th>
                       <th className="px-4 py-3">Kategori</th>
+                      <th className="px-4 py-3">Sumber Dana</th>
                       <th className="px-4 py-3">Keterangan</th>
                       <th className="px-4 py-3 text-right">Debit</th>
                       <th className="px-4 py-3 text-right">Kredit</th>
@@ -110,16 +138,17 @@ export default function BukuKasPage() {
                   </thead>
                   <tbody className="divide-y divide-outline-variant text-body-sm">
                     <tr className="bg-surface-container-low/50 italic">
-                      <td colSpan={6} className="px-4 py-2 text-right text-on-surface-variant">Saldo Awal</td>
+                      <td colSpan={7} className="px-4 py-2 text-right text-on-surface-variant">Total Saldo Awal</td>
                       <td className="px-4 py-2 text-right font-label-md">{fmt(data.saldo_awal)}</td>
                     </tr>
                     {data.data.length === 0 ? (
-                      <tr><td colSpan={7} className="px-6 py-12 text-center text-on-surface-variant">Tidak ada transaksi disetujui pada periode ini.</td></tr>
+                      <tr><td colSpan={8} className="px-6 py-12 text-center text-on-surface-variant">Tidak ada transaksi disetujui pada periode ini.</td></tr>
                     ) : data.data.map((r) => (
                       <tr key={r.id} className="hover:bg-surface-container-low/50">
                         <td className="px-4 py-2 whitespace-nowrap">{r.transaction_date}</td>
                         <td className="px-4 py-2 font-mono text-[12px]">{r.transaction_number}</td>
                         <td className="px-4 py-2">{r.category_name}</td>
+                        <td className="px-4 py-2 text-on-surface-variant whitespace-nowrap">{r.type === "expense" ? (r.source_fund_label ?? "Umum") : "-"}</td>
                         <td className="px-4 py-2 text-on-surface-variant max-w-[280px] truncate">{r.description ?? "-"}</td>
                         <td className="px-4 py-2 text-right text-tertiary whitespace-nowrap">{r.debit > 0 ? fmt(r.debit) : "-"}</td>
                         <td className="px-4 py-2 text-right text-error whitespace-nowrap">{r.kredit > 0 ? fmt(r.kredit) : "-"}</td>
@@ -127,7 +156,7 @@ export default function BukuKasPage() {
                       </tr>
                     ))}
                     <tr className="bg-surface-container font-label-md">
-                      <td colSpan={4} className="px-4 py-2 text-right">Total</td>
+                      <td colSpan={5} className="px-4 py-2 text-right">Total</td>
                       <td className="px-4 py-2 text-right text-tertiary">{fmt(data.total_debit)}</td>
                       <td className="px-4 py-2 text-right text-error">{fmt(data.total_kredit)}</td>
                       <td className="px-4 py-2 text-right text-primary">{fmt(data.saldo_akhir)}</td>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { requireSession } from "@/lib/kas";
+import { ensureKasSourceFundColumn, getAutoSourceFundByCategoryCode, isValidSourceFund, requireSession } from "@/lib/kas";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
 
@@ -30,6 +30,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (response) return response;
 
   try {
+    await ensureKasSourceFundColumn();
+
     const { response } = await requireAdmin(req);
     if (response) return response;
     const { id } = await params;
@@ -52,6 +54,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const description = body.description ? String(body.description).trim() : null;
     const referenceNumber = body.reference_number ? String(body.reference_number).trim() : null;
     const attachmentUrl = body.attachment_url ? String(body.attachment_url).trim() : null;
+    const sourceFundRaw = body.source_fund;
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return NextResponse.json({ error: "Tanggal tidak valid" }, { status: 400 });
@@ -60,12 +63,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Kategori dan nominal wajib valid" }, { status: 400 });
     }
 
+    const [[cat]] = await pool.execute<RowDataPacket[]>(
+      `SELECT type, code FROM cash_categories WHERE id=? AND active=1`, [categoryId]
+    );
+    if (!cat) return NextResponse.json({ error: "Kategori tidak ditemukan / tidak aktif" }, { status: 400 });
+
+    const autoSourceFund = getAutoSourceFundByCategoryCode(String(cat.code));
+    const sourceFund = cat.type === "expense"
+      ? (autoSourceFund ?? (isValidSourceFund(sourceFundRaw) ? sourceFundRaw : "umum"))
+      : null;
+
     await pool.execute<ResultSetHeader>(
       `UPDATE cash_transactions
        SET transaction_date=?, category_id=?, amount=?, payment_method=?,
-           description=?, reference_number=?, attachment_url=?
+           description=?, reference_number=?, attachment_url=?, source_fund=?
        WHERE id=?`,
-      [date, categoryId, amount, paymentMethod, description, referenceNumber, attachmentUrl, id]
+      [date, categoryId, amount, paymentMethod, description, referenceNumber, attachmentUrl, sourceFund, id]
     );
     return NextResponse.json({ ok: true });
   } catch {

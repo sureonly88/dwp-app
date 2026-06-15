@@ -19,6 +19,7 @@ export interface AnggotaFormData {
   alamat: string;
   join_date: string;
   tanggal_keluar: string;
+  tanggal_pensiun: string;
 }
 
 interface AnggotaModalProps {
@@ -51,6 +52,7 @@ const EMPTY_FORM: AnggotaFormData = {
   alamat: "",
   join_date: new Date().toISOString().split("T")[0],
   tanggal_keluar: "",
+  tanggal_pensiun: "",
 };
 
 export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: AnggotaModalProps) {
@@ -67,6 +69,7 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
           alamat: initialData.alamat ?? "",
           join_date: initialData.join_date?.split("T")[0] ?? EMPTY_FORM.join_date,
           tanggal_keluar: initialData.tanggal_keluar ? initialData.tanggal_keluar.split("T")[0] : "",
+          tanggal_pensiun: initialData.tanggal_pensiun ? initialData.tanggal_pensiun.split("T")[0] : "",
         }
       : EMPTY_FORM
   );
@@ -111,6 +114,7 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
         body: JSON.stringify({
           ...form,
           tanggal_keluar: form.tanggal_keluar ? form.tanggal_keluar : null,
+          tanggal_pensiun: form.tanggal_pensiun ? form.tanggal_pensiun : null,
         }),
       });
 
@@ -249,20 +253,36 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
               </div>
             </div>
 
-            {/* Tanggal Keluar */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md text-label-md text-on-surface font-semibold">
+                  Tanggal Pensiun
+                </label>
+                <input
+                  type="date"
+                  name="tanggal_pensiun"
+                  value={form.tanggal_pensiun}
+                  onChange={handleChange}
+                  className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md text-label-md text-on-surface font-semibold">
+                  Tanggal Keluar / Berhenti
+                </label>
+                <input
+                  type="date"
+                  name="tanggal_keluar"
+                  value={form.tanggal_keluar}
+                  onChange={handleChange}
+                  className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                />
+              </div>
+            </div>
+
             <div className="flex flex-col gap-1.5">
-              <label className="text-label-md text-label-md text-on-surface font-semibold">
-                Tanggal Keluar / Berhenti
-              </label>
-              <input
-                type="date"
-                name="tanggal_keluar"
-                value={form.tanggal_keluar}
-                onChange={handleChange}
-                className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
-              />
               <p className="text-body-sm text-on-surface-variant text-[11px]">
-                Kosongkan jika anggota masih aktif. Mulai bulan setelah tanggal ini, anggota tidak muncul di laporan iuran.
+                Isi tanggal pensiun bila sudah diketahui. Kosongkan jika belum pensiun. Tanggal keluar tetap dipakai bila anggota sudah berhenti dan tidak muncul di laporan iuran mulai bulan berikutnya.
               </p>
             </div>
 
