@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
 import { computeKegiatanStatus } from "@/lib/kegiatanUtils";
+import { ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
 
 export async function GET() {
   try {
+    await ensureAnggotaTanggalPensiunColumn();
+
     const today = new Date();
     const year = today.getFullYear();
     const month = String(today.getMonth() + 1).padStart(2, "0");
@@ -12,6 +15,8 @@ export async function GET() {
     const periodEnd = new Date(year, today.getMonth() + 1, 0)
       .toISOString()
       .slice(0, 10);
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year}-12-31`;
 
     // Jalankan semua query independen secara paralel untuk meminimalkan latency DB
     const [
@@ -19,8 +24,10 @@ export async function GET() {
       [[unitRow]],
       [[kegiatanBulanIni]],
       [[tarifRow]],
+      [[pensiunStats]],
       [upcomingRows],
       [recentAnggota],
+      [pensiunList],
       [unitDist],
       [kegiatanHistory],
     ] = await Promise.all([
@@ -50,6 +57,15 @@ export async function GET() {
         WHERE aktif = 1 AND periode_mulai <= ?
         ORDER BY periode_mulai DESC LIMIT 1
       `, [periodEnd]),
+      // 5. Monitoring pensiun tahun berjalan
+      pool.execute<RowDataPacket[]>(`
+        SELECT
+          COUNT(*) AS total,
+          SUM(tanggal_pensiun < CURDATE()) AS sudah,
+          SUM(tanggal_pensiun >= CURDATE()) AS akan_datang
+        FROM anggota
+        WHERE tanggal_pensiun BETWEEN ? AND ?
+      `, [yearStart, yearEnd]),
       // 5. 5 kegiatan terdekat (mendatang/berlangsung)
       pool.execute<RowDataPacket[]>(`
         SELECT k.id, k.judul, k.tanggal, k.waktu_mulai, k.waktu_selesai,
@@ -69,6 +85,14 @@ export async function GET() {
         ORDER BY join_date DESC, id DESC
         LIMIT 5
       `),
+      // 7. Daftar pensiun tahun berjalan
+      pool.execute<RowDataPacket[]>(`
+        SELECT id, nama, nip, jabatan, unit_kerja, status, tanggal_pensiun
+        FROM anggota
+        WHERE tanggal_pensiun BETWEEN ? AND ?
+        ORDER BY tanggal_pensiun ASC, nama ASC
+        LIMIT 5
+      `, [yearStart, yearEnd]),
       // 7. Anggota per unit (untuk chart)
       pool.execute<RowDataPacket[]>(`
         SELECT unit_kerja AS unit, COUNT(*) AS total,
@@ -128,9 +152,13 @@ export async function GET() {
         unit_kerja_aktif: Number(unitRow?.total ?? 0),
         kegiatan_bulan_ini: Number(kegiatanBulanIni?.total ?? 0),
         estimasi_iuran_bulan_ini: estimasiIuran,
+        pensiun_tahun_berjalan: Number(pensiunStats?.total ?? 0),
+        pensiun_sudah_terjadi: Number(pensiunStats?.sudah ?? 0),
+        pensiun_akan_datang: Number(pensiunStats?.akan_datang ?? 0),
       },
       upcoming,
       recent_anggota: recentAnggota,
+      pensiun_anggota: pensiunList,
       unit_dist: unitDist,
       kegiatan_history: kegiatanHistory,
     });

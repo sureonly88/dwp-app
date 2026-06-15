@@ -93,7 +93,14 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
   }, [onClose]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((prev) => {
+      const next = { ...prev, [name]: value };
+      if (name === "tanggal_keluar" && value) {
+        next.status = "Non-Aktif";
+      }
+      return next;
+    });
     setError(null);
   };
 
@@ -235,11 +242,15 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
                   name="status"
                   value={form.status}
                   onChange={handleChange}
+                  disabled={Boolean(form.tanggal_keluar)}
                   style={{ paddingTop: '10px', paddingBottom: '10px' }}
-                  className="appearance-none border border-outline-variant rounded-lg px-4 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                  className="appearance-none border border-outline-variant rounded-lg px-4 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface disabled:opacity-70"
                 >
                   {STATUS_OPTIONS.map((s) => <option key={s}>{s}</option>)}
                 </select>
+                {form.tanggal_keluar && (
+                  <p className="text-[11px] text-on-surface-variant">Status otomatis menjadi Non-Aktif saat tanggal keluar diisi.</p>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-label-md text-label-md text-on-surface font-semibold">Tanggal Bergabung</label>

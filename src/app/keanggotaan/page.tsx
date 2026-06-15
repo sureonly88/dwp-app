@@ -64,6 +64,13 @@ function formatJoinDate(dateStr: string) {
   return d.toLocaleDateString("id-ID", { month: "short", year: "numeric" });
 }
 
+function formatTanggal(dateStr: string | null) {
+  if (!dateStr) return "-";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 export default function KeanggotaanPage() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [data, setData] = useState<Anggota[]>([]);
@@ -439,7 +446,7 @@ export default function KeanggotaanPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface-container-low">
-                  {["Nama Anggota", "NIP/ID", "Jabatan", "Unit Kerja", "Kontak", "Status", "Aksi"].filter((h) => isAdmin || h !== "Aksi").map((h) => (
+                  {["Nama Anggota", "NIP/ID", "Jabatan", "Unit Kerja", "Tanggal Pensiun", "Kontak", "Status", "Aksi"].filter((h) => isAdmin || h !== "Aksi").map((h) => (
                     <th key={h} className="px-6 py-4 font-label-md text-label-md text-on-surface-variant border-b border-outline-variant whitespace-nowrap">
                       {h}
                     </th>
@@ -450,7 +457,7 @@ export default function KeanggotaanPage() {
                 {loading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <td key={j} className="px-6 py-4">
                           <div className="h-4 bg-surface-container-high rounded w-3/4" />
                         </td>
@@ -458,10 +465,10 @@ export default function KeanggotaanPage() {
                     </tr>
                   ))
                 ) : fetchError ? (
-                  <FetchErrorRow colSpan={7} message="Gagal memuat data anggota. Periksa koneksi dan coba lagi." onRetry={fetchData} />
+                  <FetchErrorRow colSpan={8} message="Gagal memuat data anggota. Periksa koneksi dan coba lagi." onRetry={fetchData} />
                 ) : data.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-16 text-center text-on-surface-variant text-body-sm">
+                    <td colSpan={8} className="px-6 py-16 text-center text-on-surface-variant text-body-sm">
                       <span className="material-symbols-outlined text-[48px] block mb-3 opacity-30">person_search</span>
                       Tidak ada data anggota yang sesuai filter.
                     </td>
@@ -483,6 +490,7 @@ export default function KeanggotaanPage() {
                       <td className="px-6 py-4 font-mono text-body-sm text-on-surface-variant whitespace-nowrap">{anggota.nip}</td>
                       <td className="px-6 py-4 text-body-sm text-on-surface">{anggota.jabatan}</td>
                       <td className="px-6 py-4 text-body-sm text-on-surface">{anggota.unit_kerja}</td>
+                      <td className="px-6 py-4 text-body-sm text-on-surface-variant whitespace-nowrap">{formatTanggal(anggota.tanggal_pensiun)}</td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-0.5">
                           {anggota.no_hp && (

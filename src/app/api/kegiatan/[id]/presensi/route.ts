@@ -82,21 +82,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let nama = "";
     if (!resolvedId) {
       const [a] = await pool.execute<RowDataPacket[]>(
-        "SELECT id, nama FROM anggota WHERE nip = ? LIMIT 1",
+        "SELECT id, nama, status FROM anggota WHERE nip = ? LIMIT 1",
         [nip]
       );
       if (a.length === 0) {
         return NextResponse.json({ error: "NIP tidak terdaftar sebagai anggota" }, { status: 404 });
       }
+      if ((a[0] as { status: string }).status === "Non-Aktif") {
+        return NextResponse.json({ error: "Anggota berstatus Non-Aktif tidak dapat dicatat hadir sebagai anggota DWP" }, { status: 400 });
+      }
       resolvedId = (a[0] as { id: number }).id;
       nama = (a[0] as { nama: string }).nama;
     } else {
       const [a] = await pool.execute<RowDataPacket[]>(
-        "SELECT nama FROM anggota WHERE id = ? LIMIT 1",
+        "SELECT nama, status FROM anggota WHERE id = ? LIMIT 1",
         [resolvedId]
       );
       if (a.length === 0) {
         return NextResponse.json({ error: "Anggota tidak ditemukan" }, { status: 404 });
+      }
+      if ((a[0] as { status: string }).status === "Non-Aktif") {
+        return NextResponse.json({ error: "Anggota berstatus Non-Aktif tidak dapat dicatat hadir sebagai anggota DWP" }, { status: 400 });
       }
       nama = (a[0] as { nama: string }).nama;
     }

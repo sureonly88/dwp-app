@@ -34,6 +34,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params;
     const body = await req.json();
     const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar, tanggal_pensiun } = body;
+    const normalizedTanggalKeluar = tanggal_keluar ? String(tanggal_keluar).slice(0, 10) : null;
+    const normalizedStatus = normalizedTanggalKeluar ? "Non-Aktif" : (status ?? "Aktif");
 
     if (!nama || !nip || !jabatan || !unit_kerja) {
       return NextResponse.json({ error: "Field wajib tidak lengkap" }, { status: 400 });
@@ -42,7 +44,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const [result] = await pool.execute<ResultSetHeader>(
       `UPDATE anggota SET nama=?, nip=?, jabatan=?, unit_kerja=?, status=?, no_hp=?, email=?, alamat=?, join_date=?, tanggal_keluar=?, tanggal_pensiun=?
        WHERE id=?`,
-      [nama, nip, jabatan, unit_kerja, status ?? "Aktif", no_hp ?? null, email ?? null, alamat ?? null, join_date, tanggal_keluar ? String(tanggal_keluar).slice(0, 10) : null, tanggal_pensiun ? String(tanggal_pensiun).slice(0, 10) : null, id]
+      [nama, nip, jabatan, unit_kerja, normalizedStatus, no_hp ?? null, email ?? null, alamat ?? null, join_date, normalizedTanggalKeluar, tanggal_pensiun ? String(tanggal_pensiun).slice(0, 10) : null, id]
     );
 
     if (result.affectedRows === 0) {

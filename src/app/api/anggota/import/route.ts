@@ -192,12 +192,13 @@ export async function POST(req: NextRequest) {
       }
 
       seenNip.add(nip);
+      const normalizedFinalStatus = tanggalKeluar ? "Non-Aktif" : status;
       validRows.push({
         nama,
         nip,
         jabatan,
         unit_kerja: unitKerja,
-        status,
+        status: normalizedFinalStatus,
         no_hp: cellToString(record.no_hp) || null,
         email: cellToString(record.email) || null,
         alamat: cellToString(record.alamat) || null,

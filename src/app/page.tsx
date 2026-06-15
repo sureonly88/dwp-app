@@ -17,6 +17,9 @@ interface DashboardStats {
   unit_kerja_aktif: number;
   kegiatan_bulan_ini: number;
   estimasi_iuran_bulan_ini: number;
+  pensiun_tahun_berjalan: number;
+  pensiun_sudah_terjadi: number;
+  pensiun_akan_datang: number;
 }
 
 interface UpcomingItem {
@@ -41,6 +44,16 @@ interface RecentAnggota {
   join_date: string;
 }
 
+interface PensiunAnggota {
+  id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  status: string;
+  tanggal_pensiun: string;
+}
+
 interface UnitDist {
   unit: string;
   total: number;
@@ -58,6 +71,7 @@ interface DashboardData {
   stats: DashboardStats;
   upcoming: UpcomingItem[];
   recent_anggota: RecentAnggota[];
+  pensiun_anggota: PensiunAnggota[];
   unit_dist: UnitDist[];
   kegiatan_history: KegiatanHistory[];
 }
@@ -225,6 +239,67 @@ export default function DashboardPage() {
             />
           </div>
         </section>
+
+        {!loading && stats && (
+          <section>
+            <Card>
+              <div className="p-5 border-b border-outline-variant flex items-center justify-between">
+                <div>
+                  <h2 className="font-h3 text-h3 text-on-surface">Monitoring Pensiun Anggota</h2>
+                  <p className="text-body-sm text-on-surface-variant mt-0.5">Diambil dari tanggal pensiun anggota pada tahun berjalan</p>
+                </div>
+                <Badge label={String(stats.pensiun_tahun_berjalan)} variant="info" />
+              </div>
+              <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="bg-surface-container-low rounded-xl p-4">
+                  <p className="text-label-sm text-on-surface-variant uppercase tracking-wide">Total Tahun Ini</p>
+                  <p className="font-h2 text-h2 text-on-surface mt-1">{stats.pensiun_tahun_berjalan}</p>
+                </div>
+                <div className="bg-surface-container-low rounded-xl p-4">
+                  <p className="text-label-sm text-on-surface-variant uppercase tracking-wide">Sudah Pensiun</p>
+                  <p className="font-h2 text-h2 text-error mt-1">{stats.pensiun_sudah_terjadi}</p>
+                </div>
+                <div className="bg-surface-container-low rounded-xl p-4">
+                  <p className="text-label-sm text-on-surface-variant uppercase tracking-wide">Akan Datang</p>
+                  <p className="font-h2 text-h2 text-tertiary mt-1">{stats.pensiun_akan_datang}</p>
+                </div>
+              </div>
+              <div className="px-5 pb-5">
+                {(data?.pensiun_anggota ?? []).length === 0 ? (
+                  <p className="text-body-sm text-on-surface-variant">Tidak ada anggota dengan tanggal pensiun di tahun ini.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="text-label-sm text-on-surface-variant border-b border-outline-variant">
+                          <th className="py-2 pr-4">Nama</th>
+                          <th className="py-2 pr-4">Jabatan</th>
+                          <th className="py-2 pr-4">Unit</th>
+                          <th className="py-2 pr-4">Tanggal Pensiun</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-outline-variant">
+                        {(data?.pensiun_anggota ?? []).map((anggota) => (
+                          <tr key={anggota.id} className="text-body-sm">
+                            <td className="py-2 pr-4">
+                              <div>
+                                <p className="text-on-surface font-medium">{anggota.nama}</p>
+                                <p className="text-[11px] text-on-surface-variant font-mono">{anggota.nip}</p>
+                              </div>
+                            </td>
+                            <td className="py-2 pr-4 text-on-surface-variant">{anggota.jabatan}</td>
+                            <td className="py-2 pr-4 text-on-surface-variant">{anggota.unit_kerja}</td>
+                            <td className="py-2 pr-4 text-on-surface whitespace-nowrap">{formatTanggal(anggota.tanggal_pensiun)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </section>
+        )}
 
         {/* Anggota breakdown row */}
         {!loading && stats && (

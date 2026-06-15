@@ -95,6 +95,8 @@ export async function POST(req: NextRequest) {
     if (response) return response;
     const body = await req.json();
     const { nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar, tanggal_pensiun } = body;
+    const normalizedTanggalKeluar = tanggal_keluar ? String(tanggal_keluar).slice(0, 10) : null;
+    const normalizedStatus = normalizedTanggalKeluar ? "Non-Aktif" : (status ?? "Aktif");
 
     if (!nama || !nip || !jabatan || !unit_kerja) {
       return NextResponse.json({ error: "Field wajib tidak lengkap" }, { status: 400 });
@@ -108,12 +110,12 @@ export async function POST(req: NextRequest) {
         nip,
         jabatan,
         unit_kerja,
-        status ?? "Aktif",
+        normalizedStatus,
         no_hp ?? null,
         email ?? null,
         alamat ?? null,
         join_date ?? new Date().toISOString().split("T")[0],
-        tanggal_keluar ? String(tanggal_keluar).slice(0, 10) : null,
+        normalizedTanggalKeluar,
         tanggal_pensiun ? String(tanggal_pensiun).slice(0, 10) : null,
       ]
     );
