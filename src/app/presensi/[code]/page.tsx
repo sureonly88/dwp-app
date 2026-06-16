@@ -365,7 +365,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                 </div>
                 <div className="flex-1">
                   <p className="font-label-md text-label-md text-on-surface group-hover:text-secondary">Tamu (Non-Anggota)</p>
-                  <p className="text-[11px] text-on-surface-variant mt-0.5">Isi nama &amp; instansi, tidak ikut undian</p>
+                  <p className="text-[11px] text-on-surface-variant mt-0.5">Isi nama &amp; instansi. Tamu hadir dapat ikut doorprize.</p>
                 </div>
                 <span className="material-symbols-outlined text-on-surface-variant group-hover:text-secondary">chevron_right</span>
               </button>
@@ -456,7 +456,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
               </button>
               <div>
                 <p className="font-label-md text-label-md text-on-surface font-semibold">Data Tamu</p>
-                <p className="text-[11px] text-on-surface-variant">Tidak ikut pengundian Arisan &amp; Doorprize</p>
+                <p className="text-[11px] text-on-surface-variant">Tamu hadir ikut pengundian Doorprize, tetapi tidak ikut Arisan</p>
               </div>
             </div>
             <div className="flex flex-col gap-3">

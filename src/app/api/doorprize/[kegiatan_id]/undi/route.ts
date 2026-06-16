@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
+import { pickRandomDoorprizeCandidate } from "@/lib/doorprize";
 
 // POST /api/doorprize/[kegiatan_id]/undi — auto-undian satu pemenang doorprize
 export async function POST(req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
@@ -31,23 +32,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
       return NextResponse.json({ error: "Semua hadiah sudah terisi" }, { status: 400 });
     }
 
-    // Pick random Aktif anggota yang:
-    // 1. Hadir di kegiatan ini (ada di presensi)
-    // 2. Belum menang doorprize di kegiatan ini
-    const [candidates] = await pool.execute<RowDataPacket[]>(
-      `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja
-       FROM anggota a
-       INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-       WHERE a.status = 'Aktif'
-         AND a.id NOT IN (SELECT anggota_id FROM doorprize_winners WHERE kegiatan_id = ?)
-       ORDER BY RAND()
-       LIMIT 1`,
-      [kegiatan_id, kegiatan_id]
-    );
-    if (candidates.length === 0) {
+    const winner = await pickRandomDoorprizeCandidate(kegiatan_id);
+    if (!winner) {
       return NextResponse.json({ error: "Tidak ada peserta yang hadir dan belum menang doorprize" }, { status: 400 });
     }
-    const winner = candidates[0];
     const urutan = currentCount + 1;
 
     // Auto-create hadiah entry
@@ -59,18 +47,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
 
     // Insert winner
     const [winnerRes] = await pool.execute<ResultSetHeader>(
-      `INSERT INTO doorprize_winners (kegiatan_id, hadiah_id, anggota_id) VALUES (?, ?, ?)`,
-      [kegiatan_id, hadiahId, winner.id]
+      `INSERT INTO doorprize_winners (kegiatan_id, hadiah_id, peserta_tipe, anggota_id, tamu_id) VALUES (?, ?, ?, ?, ?)`,
+      [kegiatan_id, hadiahId, winner.peserta_tipe, winner.anggota_id, winner.tamu_id]
     );
 
     return NextResponse.json({
       winner: {
         id: winnerRes.insertId,
         urutan,
+        peserta_tipe: winner.peserta_tipe,
+        anggota_id: winner.anggota_id,
+        tamu_id: winner.tamu_id,
         nama: winner.nama,
         nip: winner.nip,
         jabatan: winner.jabatan,
         unit_kerja: winner.unit_kerja,
+        instansi: winner.instansi,
       },
     });
   } catch (err) {

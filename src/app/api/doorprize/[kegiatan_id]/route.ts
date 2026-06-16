@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
+import { countDoorprizePresentParticipants, listEligibleDoorprizeCandidates, listHadirAnggotaDoorprizeNames } from "@/lib/doorprize";
 
 // GET /api/doorprize/[kegiatan_id] — kegiatan + setup + flat winners list
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
@@ -22,37 +23,43 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
     );
 
     const [winners] = await pool.execute<RowDataPacket[]>(
-      `SELECT w.id, h.urutan, a.nama, a.nip, a.jabatan, a.unit_kerja, w.waktu, w.anggota_id
+      `SELECT w.id, h.urutan, w.peserta_tipe,
+              COALESCE(a.nama, pt.nama) AS nama,
+              a.nip,
+              CASE
+                WHEN w.peserta_tipe = 'tamu' THEN 'Tamu'
+                ELSE a.jabatan
+              END AS jabatan,
+              CASE
+                WHEN w.peserta_tipe = 'tamu' THEN COALESCE(NULLIF(TRIM(pt.instansi), ''), 'Tamu Non-Anggota')
+                ELSE a.unit_kerja
+              END AS unit_kerja,
+              pt.instansi,
+              w.waktu,
+              w.anggota_id,
+              w.tamu_id
        FROM doorprize_winners w
        JOIN doorprize_hadiah h ON h.id = w.hadiah_id
-       JOIN anggota a ON a.id = w.anggota_id
+       LEFT JOIN anggota a ON a.id = w.anggota_id
+       LEFT JOIN presensi_tamu pt ON pt.id = w.tamu_id
        WHERE w.kegiatan_id = ?
        ORDER BY h.urutan ASC`,
       [kegiatan_id]
     );
 
-    // Jumlah anggota yang hadir di kegiatan ini
-    const [hadirRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) AS hadir_count FROM presensi WHERE kegiatan_id = ?`,
-      [kegiatan_id]
-    );
-
-    // Jumlah peserta yang masih memenuhi syarat untuk diundi (hadir, aktif, belum menang doorprize kegiatan ini)
-    const [eligibleRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) AS eligible_count
-       FROM anggota a
-       INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-       WHERE a.status = 'Aktif'
-         AND a.id NOT IN (SELECT anggota_id FROM doorprize_winners WHERE kegiatan_id = ?)`,
-      [kegiatan_id, kegiatan_id]
-    );
+    const [hadirCount, eligibleCandidates, rollNames] = await Promise.all([
+      countDoorprizePresentParticipants(kegiatan_id),
+      listEligibleDoorprizeCandidates(kegiatan_id),
+      listHadirAnggotaDoorprizeNames(kegiatan_id),
+    ]);
 
     return NextResponse.json({
       kegiatan: kegRows[0],
       setup: setupRows[0] ?? null,
       winners,
-      hadir_count: Number(hadirRows[0].hadir_count),
-      eligible_count: Number(eligibleRows[0].eligible_count),
+      hadir_count: hadirCount,
+      eligible_count: eligibleCandidates.length,
+      roll_names: rollNames,
     });
   } catch (err) {
     console.error(err);

@@ -1,5 +1,5 @@
 -- Migration: Tambahkan tabel presensi_tamu untuk mencatat kehadiran tamu (non-anggota DWP)
--- Tamu TIDAK ikut dalam pengundian Arisan maupun Doorprize
+-- Tamu dapat diikutsertakan dalam doorprize jika hadir, tetapi tidak ikut arisan
 
 CREATE TABLE IF NOT EXISTS presensi_tamu (
   id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
@@ -11,4 +11,4 @@ CREATE TABLE IF NOT EXISTS presensi_tamu (
   CONSTRAINT fk_tamu_kegiatan FOREIGN KEY (kegiatan_id) REFERENCES kegiatan(id) ON DELETE CASCADE,
   INDEX idx_tamu_kegiatan (kegiatan_id),
   INDEX idx_tamu_waktu (waktu_hadir)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Daftar hadir tamu non-anggota DWP. Tidak diikutsertakan dalam arisan/doorprize.';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Daftar hadir tamu non-anggota DWP. Dapat diikutsertakan dalam doorprize dan tidak ikut arisan.';

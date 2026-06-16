@@ -924,7 +924,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                   <h3 className="font-h3 text-h3 text-on-surface">Tamu (Non-Anggota)</h3>
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-label-sm font-semibold bg-secondary-container text-on-secondary-container">
                     <span className="material-symbols-outlined text-[14px]">info</span>
-                    Tidak ikut Arisan &amp; Doorprize
+                    Ikut Doorprize, tidak ikut Arisan
                   </span>
                 </div>
                 <span className="text-label-md text-on-surface-variant">{tamu.length} tamu</span>
@@ -1077,7 +1077,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                 <div className="flex flex-col gap-3">
                   <div className="flex items-start gap-2 p-3 bg-secondary-container/40 rounded-lg text-[11px] text-on-surface-variant">
                     <span className="material-symbols-outlined text-[16px] mt-0.5 shrink-0 text-secondary">info</span>
-                    Tamu <strong>tidak diikutsertakan</strong> dalam pengundian Arisan &amp; Doorprize.
+                    Tamu dapat diikutsertakan dalam <strong>Doorprize</strong> jika hadir, tetapi <strong>tidak ikut Arisan</strong>.
                   </div>
                   <input
                     value={tamuNama}

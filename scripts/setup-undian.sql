@@ -44,11 +44,16 @@ CREATE TABLE IF NOT EXISTS doorprize_winners (
   id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   kegiatan_id INT UNSIGNED NOT NULL,
   hadiah_id INT UNSIGNED NOT NULL,
-  anggota_id INT UNSIGNED NOT NULL,
+  peserta_tipe ENUM('anggota', 'tamu') NOT NULL DEFAULT 'anggota',
+  anggota_id INT UNSIGNED NULL,
+  tamu_id INT UNSIGNED NULL,
   waktu TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_dp_winners_kegiatan FOREIGN KEY (kegiatan_id) REFERENCES kegiatan(id) ON DELETE CASCADE,
   CONSTRAINT fk_dp_winners_hadiah FOREIGN KEY (hadiah_id) REFERENCES doorprize_hadiah(id) ON DELETE CASCADE,
   CONSTRAINT fk_dp_winners_anggota FOREIGN KEY (anggota_id) REFERENCES anggota(id) ON DELETE CASCADE,
+  CONSTRAINT fk_dp_winners_tamu FOREIGN KEY (tamu_id) REFERENCES presensi_tamu(id) ON DELETE CASCADE,
   UNIQUE KEY uniq_dp_hadiah_winner (hadiah_id),
-  INDEX idx_dp_winners_kegiatan (kegiatan_id)
+  INDEX idx_dp_winners_kegiatan (kegiatan_id),
+  INDEX idx_dp_winners_anggota (anggota_id),
+  INDEX idx_dp_winners_tamu (tamu_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -165,18 +165,21 @@ function buildHtml(d: {
   unit_kerja_bertugas: string;
   logoDataUrl: string;
 }) {
-  // Build acara rows: split deskripsi by newlines if provided, otherwise use judul
-  const acaraItems = d.deskripsi
-    ? d.deskripsi.split("\n").map((s) => s.trim()).filter(Boolean)
-    : [d.judul];
+  // Build acara rows strictly from deskripsi kegiatan.
+  const acaraItems = (d.deskripsi ?? "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  const acaraHtml = acaraItems
-    .map((item, i) =>
-      i === 0
-        ? `- &nbsp;${escHtml(item)}`
-        : `<br/><span style="display:inline-block;width:0"></span>- &nbsp;${escHtml(item)}`
-    )
-    .join("");
+  const acaraHtml = acaraItems.length > 0
+    ? acaraItems
+        .map((item, i) =>
+          i === 0
+            ? `- &nbsp;${escHtml(item)}`
+            : `<br/><span style="display:inline-block;width:0"></span>- &nbsp;${escHtml(item)}`
+        )
+        .join("")
+    : "&ndash;";
 
   const waktuStr = d.waktuMulai
     ? `Pukul ${d.waktuMulai} ${escHtml(d.zona_waktu)}`

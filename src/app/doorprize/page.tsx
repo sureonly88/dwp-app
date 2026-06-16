@@ -23,16 +23,13 @@ interface DoorprizeSetup {
 interface Winner {
   id: number;
   urutan: number;
+  peserta_tipe: "anggota" | "tamu";
   nama: string;
   nip: string | null;
-  jabatan: string;
-  unit_kerja: string;
+  jabatan: string | null;
+  unit_kerja: string | null;
+  instansi?: string | null;
   waktu: string;
-}
-
-interface AnggotaOption {
-  id: number;
-  nama: string;
 }
 
 type SpinState = "idle" | "running" | "stopping";
@@ -83,7 +80,7 @@ export default function DoorprizePage() {
   const [undianOpen, setUndianOpen] = useState(false);
   const [spinState, setSpinState] = useState<SpinState>("idle");
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const [lastWinner, setLastWinner] = useState<{ id: number; nama: string; unit: string; jabatan: string } | null>(null);
+  const [lastWinner, setLastWinner] = useState<{ id: number; nama: string; pesertaTipe: "anggota" | "tamu"; unit: string | null; jabatan: string | null } | null>(null);
   const [rollNames, setRollNames] = useState<string[]>([]);
   const rollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const rollIdxRef = useRef(0);
@@ -108,25 +105,10 @@ export default function DoorprizePage() {
     }
   }, []);
 
-  const loadRollNames = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/anggota?status=Aktif&limit=100`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      const names = (json.data ?? [])
-        .map((a: AnggotaOption) => a.nama)
-        .filter((nama: string) => nama.trim().length > 0);
-      setRollNames(names);
-    } catch {
-      setRollNames([]);
-    }
-  }, []);
-
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat data awal halaman dari API.
     loadKegiatan();
-    loadRollNames();
-  }, [loadKegiatan, loadRollNames]);
+  }, [loadKegiatan]);
 
   const loadDetail = useCallback(async (kegiatanId: number) => {
     setLoading(true);
@@ -139,6 +121,7 @@ export default function DoorprizePage() {
       setWinners(json.winners ?? []);
       setHadirCount(json.hadir_count ?? null);
       setEligibleCount(json.eligible_count ?? null);
+      setRollNames((json.roll_names ?? []).filter((nama: string) => typeof nama === "string" && nama.trim().length > 0));
     } catch {
       showToast("Gagal memuat doorprize", "error");
     } finally {
@@ -189,10 +172,14 @@ export default function DoorprizePage() {
   };
 
   // Undian
-  const openUndian = () => {
+  const openUndian = async () => {
+    if (selectedId !== null) {
+      await loadDetail(selectedId);
+    }
     setDisplayName(null);
     setLastWinner(null);
     setSpinState("idle");
+    setUndiError(null);
     setUndianOpen(true);
   };
 
@@ -332,13 +319,13 @@ export default function DoorprizePage() {
     }
     if (eligibleCount === 0) {
       setUndiError(hadirCount === 0
-        ? "Belum ada anggota yang melakukan presensi di kegiatan ini."
+        ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
         : "Semua peserta yang hadir sudah mendapat doorprize di kegiatan ini.");
       return;
     }
     if (undiError) return;
     if (rollNames.length === 0) {
-      setUndiError("Data nama anggota belum tersedia untuk animasi pengundian.");
+      setUndiError("Data nama peserta hadir belum tersedia untuk animasi pengundian.");
       return;
     }
     setUndiError(null);
@@ -401,6 +388,7 @@ export default function DoorprizePage() {
       setLastWinner({
         id: json.winner.id,
         nama: json.winner.nama,
+        pesertaTipe: json.winner.peserta_tipe,
         unit: json.winner.unit_kerja,
         jabatan: json.winner.jabatan,
       });
@@ -588,7 +576,7 @@ export default function DoorprizePage() {
                     {isSlotFull
                       ? "Semua jatah hadiah untuk kegiatan ini sudah terpenuhi."
                       : hadirCount === 0
-                      ? "Belum ada anggota yang melakukan presensi di kegiatan ini."
+                      ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
                       : undiError ?? "Semua peserta yang hadir sudah mendapat doorprize di kegiatan ini."}
                   </p>
                 </div>
@@ -633,7 +621,9 @@ export default function DoorprizePage() {
               </h1>
               {spinState === "idle" && lastWinner && (
                 <p className="mt-4 text-on-surface-variant text-[14px] shimmer-text">
-                  {lastWinner.unit} &nbsp;·&nbsp; {lastWinner.jabatan}
+                  {lastWinner.pesertaTipe === "tamu" ? "Tamu Hadir" : "Anggota Hadir"}
+                  {lastWinner.unit ? ` · ${lastWinner.unit}` : ""}
+                  {lastWinner.jabatan ? ` · ${lastWinner.jabatan}` : ""}
                 </p>
               )}
             </div>
@@ -724,6 +714,12 @@ export default function DoorprizePage() {
                   setWinners([]);
                   setSetup(null);
                   setKegiatanInfo(null);
+                  setHadirCount(null);
+                  setEligibleCount(null);
+                  setRollNames([]);
+                  setUndiError(null);
+                  setLastWinner(null);
+                  setDisplayName(null);
                 }}
                 className="w-full appearance-none border border-outline-variant rounded-lg pl-10 pr-10 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11"
               >
@@ -868,9 +864,10 @@ export default function DoorprizePage() {
                       <tr className="bg-surface-container border-b border-outline-variant text-on-surface-variant text-[11px] uppercase tracking-widest">
                         <th className="px-5 py-3 text-center w-12">#</th>
                         <th className="px-5 py-3 text-left">Nama</th>
+                        <th className="px-5 py-3 text-left">Jenis</th>
                         <th className="px-5 py-3 text-left">NIP</th>
                         <th className="px-5 py-3 text-left">Jabatan</th>
-                        <th className="px-5 py-3 text-left">Unit Kerja</th>
+                        <th className="px-5 py-3 text-left">Instansi / Unit Kerja</th>
                         <th className="px-5 py-3 text-center">Waktu</th>
                         <th className="px-3 py-3 w-12"></th>
                       </tr>
@@ -884,9 +881,12 @@ export default function DoorprizePage() {
                             </span>
                           </td>
                           <td className="px-5 py-3.5 font-bold text-on-surface uppercase whitespace-nowrap text-[15px]">{w.nama}</td>
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            <Badge label={w.peserta_tipe === "tamu" ? "Tamu" : "Anggota"} variant={w.peserta_tipe === "tamu" ? "warning" : "info"} />
+                          </td>
                           <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.nip || "-"}</td>
-                          <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.jabatan}</td>
-                          <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.unit_kerja}</td>
+                          <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.jabatan || "-"}</td>
+                          <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.unit_kerja || w.instansi || "-"}</td>
                           <td className="px-5 py-3.5 text-on-surface-variant text-center whitespace-nowrap text-[12px]">
                             {w.waktu ? new Date(w.waktu).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"}
                           </td>

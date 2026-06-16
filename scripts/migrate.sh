@@ -59,20 +59,21 @@ run_sql "$SCRIPTS_DIR/setup-auth.sql"
 # 3. Kegiatan dan presensi
 run_sql "$SCRIPTS_DIR/setup-kegiatan.sql"
 
-# 4. Iuran (juga ALTER TABLE anggota add tanggal_keluar)
-run_sql "$SCRIPTS_DIR/setup-iuran.sql"
-
-# 4b. Tambah kolom tanggal_pensiun pada anggota
-run_sql "$SCRIPTS_DIR/migrate-anggota-tanggal-pensiun.sql"
-
-# 5. Arisan & doorprize
-run_sql "$SCRIPTS_DIR/setup-undian.sql"
-
-# 6. Presensi tamu
+# 4. Presensi tamu
 run_sql "$SCRIPTS_DIR/migrate-presensi-tamu.sql"
 
-# 7. Foto presensi tamu
+# 5. Foto presensi tamu
 run_sql "$SCRIPTS_DIR/migrate-presensi-tamu-foto.sql"
+
+# 6. Iuran (juga ALTER TABLE anggota add tanggal_keluar)
+run_sql "$SCRIPTS_DIR/setup-iuran.sql"
+
+# 6b. Tambah kolom tanggal_pensiun pada anggota
+run_sql "$SCRIPTS_DIR/migrate-anggota-tanggal-pensiun.sql"
+
+# 7. Arisan & doorprize
+run_sql "$SCRIPTS_DIR/setup-undian.sql"
+run_sql "$SCRIPTS_DIR/migrate-doorprize-peserta.sql"
 
 # 8. Sistem Kas (cash management)
 run_sql "$SCRIPTS_DIR/setup-kas.sql"
