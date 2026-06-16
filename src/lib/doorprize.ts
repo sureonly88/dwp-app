@@ -26,7 +26,8 @@ export interface DoorprizeCandidate {
 }
 
 export async function listHadirAnggotaDoorprizeNames(kegiatanId: number | string): Promise<string[]> {
-  const [rows] = await pool.execute<RowDataPacket[]>(
+  // Ambil nama anggota yang hadir
+  const [anggotaRows] = await pool.execute<RowDataPacket[]>(
     `SELECT DISTINCT a.nama
      FROM anggota a
      INNER JOIN presensi pr ON pr.anggota_id = a.id
@@ -36,9 +37,25 @@ export async function listHadirAnggotaDoorprizeNames(kegiatanId: number | string
     [kegiatanId]
   );
 
-  return rows
+  // Ambil nama tamu yang hadir — tamu juga masuk animasi roll doorprize
+  const [tamuRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT DISTINCT pt.nama
+     FROM presensi_tamu pt
+     WHERE pt.kegiatan_id = ?
+       AND COALESCE(NULLIF(TRIM(pt.nama), ''), '') <> ''
+     ORDER BY pt.nama ASC`,
+    [kegiatanId]
+  );
+
+  const anggotaNames = anggotaRows
     .map((row) => String(row.nama ?? "").trim())
     .filter(Boolean);
+
+  const tamuNames = tamuRows
+    .map((row) => String(row.nama ?? "").trim())
+    .filter(Boolean);
+
+  return [...anggotaNames, ...tamuNames];
 }
 
 export async function listEligibleDoorprizeCandidates(kegiatanId: number | string): Promise<DoorprizeCandidate[]> {

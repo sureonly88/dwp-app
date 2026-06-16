@@ -184,25 +184,10 @@ export default function ArisanPage() {
     }
   }, []);
 
-  const loadRollNames = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/anggota?status=Aktif&limit=100`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      const names = (json.data ?? [])
-        .map((a: AnggotaOption) => a.nama)
-        .filter((nama: string) => nama.trim().length > 0);
-      setRollNames(names);
-    } catch {
-      setRollNames([]);
-    }
-  }, []);
-
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat data awal halaman dari API.
     loadKegiatan();
-    loadRollNames();
-  }, [loadKegiatan, loadRollNames]);
+  }, [loadKegiatan]);
 
   const loadAnggotaOptions = useCallback(async (search = "") => {
     try {
@@ -311,6 +296,8 @@ export default function ArisanPage() {
       setEligibleCount(json.eligible_count ?? null);
       setNominal(json.setup ? String(Number(json.setup.nominal_per_orang)) : "0");
       setJumlahPemenang(json.setup ? String(json.setup.jumlah_pemenang) : "1");
+      // Nama anggota hadir di kegiatan ini — dipakai untuk animasi roll
+      setRollNames((json.roll_names ?? []).filter((n: string) => typeof n === "string" && n.trim().length > 0));
     } catch {
       showToast("Gagal memuat detail arisan", "error");
     } finally {
@@ -324,6 +311,7 @@ export default function ArisanPage() {
       setDisplayName(null);
       setLastWinner(null);
       setSpinState("idle");
+      setRollNames([]);
       loadDetail(selectedId);
     }
   }, [selectedId, loadDetail]);

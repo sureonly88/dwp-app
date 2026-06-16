@@ -54,12 +54,27 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
       [kegiatan_id, kegiatan_id, kegiatan_id]
     );
 
+    // Nama anggota hadir untuk animasi roll — hanya anggota yang hadir di kegiatan ini
+    const [rollRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT DISTINCT a.nama
+       FROM anggota a
+       INNER JOIN presensi pr ON pr.anggota_id = a.id
+       WHERE pr.kegiatan_id = ?
+         AND COALESCE(NULLIF(TRIM(a.nama), ''), '') <> ''
+       ORDER BY a.nama ASC`,
+      [kegiatan_id]
+    );
+    const rollNames = rollRows
+      .map((row) => String(row.nama ?? "").trim())
+      .filter(Boolean);
+
     return NextResponse.json({
       kegiatan: kegRows[0],
       setup: setupRows[0] ?? null,
       winners,
       hadir_count: Number(hadirRows[0].hadir_count),
       eligible_count: Number(eligibleRows[0].eligible_count),
+      roll_names: rollNames,
     });
   } catch (err) {
     console.error(err);
