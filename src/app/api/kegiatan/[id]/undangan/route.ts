@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
 import puppeteer from "puppeteer";
@@ -65,6 +67,15 @@ export async function POST(
     const hariStr = HARI_ID[tgl.getDay()];
     const tglKegStr = `${hariStr} / ${tgl.getDate()} ${BULAN_ID[tgl.getMonth()]} ${tgl.getFullYear()}`;
     const waktuMulai = fmtJam(kegiatan.waktu_mulai as string | null);
+    let logoDataUrl = "";
+
+    try {
+      const logoPath = path.join(process.cwd(), "public", "logo_dwp.png");
+      const logoBuffer = await readFile(logoPath);
+      logoDataUrl = `data:image/png;base64,${logoBuffer.toString("base64")}`;
+    } catch (error) {
+      console.warn("Logo undangan tidak dapat dimuat:", error);
+    }
 
     const html = buildHtml({
       nomor,
@@ -83,6 +94,7 @@ export async function POST(
       tglKegStr,
       waktuMulai,
       unit_kerja_bertugas: (kegiatan.unit_kerja_bertugas as string | null) ?? "",
+      logoDataUrl,
     });
 
     const browser = await puppeteer.launch({
@@ -151,6 +163,7 @@ function buildHtml(d: {
   tglKegStr: string;
   waktuMulai: string;
   unit_kerja_bertugas: string;
+  logoDataUrl: string;
 }) {
   // Build acara rows: split deskripsi by newlines if provided, otherwise use judul
   const acaraItems = d.deskripsi
@@ -197,6 +210,10 @@ body {
 .kop-logo {
   width: 82px;
   height: 82px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.kop-logo-fallback {
   border: 3px double #5a4000;
   border-radius: 50%;
   display: flex;
@@ -208,10 +225,9 @@ body {
   font-weight: bold;
   color: #5a4000;
   padding: 6px;
-  flex-shrink: 0;
   letter-spacing: 0.5px;
 }
-.kop-logo .big { font-size: 11pt; letter-spacing: 3px; }
+.kop-logo-fallback .big { font-size: 11pt; letter-spacing: 3px; }
 .kop-text { text-align: center; }
 .kop-text h1 { font-size: 17pt; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; }
 .kop-text h2 { font-size: 12.5pt; font-weight: bold; text-transform: uppercase; margin-top: 2px; }
@@ -270,12 +286,14 @@ hr.thin  { border: none; border-top: 1px solid #000; margin: 0 0 14px; }
 
 <!-- KOP -->
 <div class="kop">
-  <div class="kop-logo">
+  ${d.logoDataUrl
+    ? `<img class="kop-logo" src="${d.logoDataUrl}" alt="Logo Dharma Wanita Persatuan" />`
+    : `<div class="kop-logo kop-logo-fallback">
     <span class="big">DWP</span>
     <span>DHARMA</span>
     <span>WANITA</span>
     <span>PERSATUAN</span>
-  </div>
+  </div>`}
   <div class="kop-text">
     <h1>Dharma Wanita Persatuan</h1>
     ${d.sub_org ? `<h2>${escHtml(d.sub_org)}</h2>` : ""}
