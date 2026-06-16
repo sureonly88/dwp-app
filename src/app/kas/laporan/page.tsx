@@ -113,7 +113,7 @@ export default function LaporanKasPage() {
               <input type="number" value={tahun} min={2000} max={2100} onChange={(e) => setTahun(Number(e.target.value))}
                 className="mt-1 block px-3 py-2.5 border border-outline-variant rounded-lg bg-surface text-body-sm text-on-surface focus:border-primary focus:outline-none w-28" />
             </label>
-            <button onClick={load} className="px-4 py-2 border border-outline-variant rounded-lg hover:bg-surface-container text-on-surface-variant">Tampilkan</button>
+            <button onClick={() => void load()} className="px-4 py-2 border border-outline-variant rounded-lg hover:bg-surface-container text-on-surface-variant">Tampilkan</button>
           </div>
         </Card>
 
