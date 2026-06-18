@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
-import { ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
+import { buildAnggotaWhereClause, ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
 
 export interface AnggotaRow extends RowDataPacket {
   id: number;
@@ -21,19 +21,6 @@ export interface AnggotaRow extends RowDataPacket {
   updated_at: string;
 }
 
-function applyJenisFilter(jenis: string, conditions: string[]) {
-  const normalizedJenis = jenis.trim().toLowerCase();
-
-  // Di data anggota, kolom yang merepresentasikan "jenis" adalah jabatan:
-  // - Anggota  => jabatan persis "Anggota"
-  // - Pengurus => semua jabatan selain "Anggota" (Ketua, Sekretaris, Bendahara, dst.)
-  if (normalizedJenis === "pengurus") {
-    conditions.push("LOWER(TRIM(COALESCE(jabatan, ''))) <> 'anggota'");
-  } else if (normalizedJenis === "anggota") {
-    conditions.push("LOWER(TRIM(COALESCE(jabatan, ''))) = 'anggota'");
-  }
-}
-
 // GET /api/anggota?search=&status=&unit=&jenis=&page=&limit=
 export async function GET(req: NextRequest) {
   try {
@@ -50,24 +37,7 @@ export async function GET(req: NextRequest) {
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(100, parsedLimit) : 10;
     const offset = (page - 1) * limit;
 
-    const conditions: string[] = [];
-    const params: (string | number)[] = [];
-
-    if (search) {
-      conditions.push("(nama LIKE ? OR nip LIKE ?)");
-      params.push(`%${search}%`, `%${search}%`);
-    }
-    if (status) {
-      conditions.push("status = ?");
-      params.push(status);
-    }
-    if (unit) {
-      conditions.push("unit_kerja = ?");
-      params.push(unit);
-    }
-    applyJenisFilter(jenis, conditions);
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { where, params } = buildAnggotaWhereClause({ search, status, unit, jenis });
 
     const [rows] = await pool.execute<AnggotaRow[]>(
       `SELECT * FROM anggota ${where} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,

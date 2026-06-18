@@ -237,6 +237,17 @@ export default function KeanggotaanPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportData = () => {
+    const params = new URLSearchParams();
+
+    if (search) params.set("search", search);
+    if (filterStatus) params.set("status", filterStatus);
+    if (filterUnit) params.set("unit", filterUnit);
+    if (filterJenis) params.set("jenis", filterJenis);
+
+    window.location.href = `/api/anggota/export?${params.toString()}`;
+  };
+
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
@@ -363,7 +374,9 @@ export default function KeanggotaanPage() {
             <Button variant="ghost" icon="description" onClick={downloadImportTemplate}>
               Template
             </Button>
-            <Button variant="outline" icon="download">Ekspor Data</Button>
+            <Button variant="outline" icon="download" onClick={handleExportData} disabled={loading || total === 0}>
+              Ekspor Data
+            </Button>
             {isAdmin && (
               <Button icon="person_add" size="lg" onClick={() => setModal("add")}>
                 Tambah Anggota
