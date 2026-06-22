@@ -47,8 +47,10 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "key_name tidak valid" }, { status: 400 });
       }
       await pool.execute<ResultSetHeader>(
-        "UPDATE app_settings SET value = ? WHERE key_name = ?",
-        [item.value ?? null, item.key_name]
+        `INSERT INTO app_settings (key_name, value)
+         VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE value = VALUES(value)`,
+        [item.key_name, item.value ?? null]
       );
     }
 

@@ -38,6 +38,11 @@ interface LaporanResponse {
   periode: { bulan: number; tahun: number; awal: string; akhir: string; label: string };
   tarif: { nominal_anggota: number; nominal_konsumsi_anggota: number; nominal_pengurus: number; periode_mulai: string | null } | null;
   rows: LaporanRow[];
+  saldo_iuran_arisan: {
+    saldo_awal: number;
+    iuran_bulan_ini: number;
+    saldo_akhir: number;
+  };
   summary: {
     total_anggota_aktif: number;
     total_pengurus_aktif: number;
@@ -328,9 +333,22 @@ export default function IuranPage() {
     }
   }, []);
 
-  useEffect(() => { fetchUnits(); }, [fetchUnits]);
-  useEffect(() => { if (tab === "laporan") fetchLaporan(); }, [tab, fetchLaporan]);
-  useEffect(() => { if (tab === "tarif") fetchTarif(); }, [tab, fetchTarif]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Pemanggilan fetch awal halaman tetap mengikuti pola existing page.
+    fetchUnits();
+  }, [fetchUnits]);
+  useEffect(() => {
+    if (tab === "laporan") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Pemanggilan fetch laporan saat tab/filter berubah mengikuti pola existing page.
+      fetchLaporan();
+    }
+  }, [tab, fetchLaporan]);
+  useEffect(() => {
+    if (tab === "tarif") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Pemanggilan fetch tarif saat tab aktif mengikuti pola existing page.
+      fetchTarif();
+    }
+  }, [tab, fetchTarif]);
 
   const handleDeleteTarif = async (t: Tarif) => {
     if (!confirm(`Hapus tarif periode ${t.periode_mulai.slice(0, 7)}?`)) return;
@@ -525,13 +543,19 @@ export default function IuranPage() {
             </Card>
 
             {laporan && (
-              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-9 gap-4">
                 <SummaryCard icon="groups" iconBg="bg-primary-fixed" iconColor="text-primary"
                   label="Anggota Aktif" value={String(laporan.summary.total_anggota_aktif)} />
                 <SummaryCard icon="shield_person" iconBg="bg-secondary-fixed" iconColor="text-secondary"
                   label="Pengurus Aktif" value={String(laporan.summary.total_pengurus_aktif)} />
+                <SummaryCard icon="account_balance"
+                  iconBg="bg-surface-container-high" iconColor="text-primary"
+                  label="Saldo Awal Arisan" value={formatRp(laporan.saldo_iuran_arisan.saldo_awal)} />
                 <SummaryCard icon="payments" iconBg="bg-tertiary-fixed" iconColor="text-tertiary"
                   label="Total Iuran Arisan Anggota" value={formatRp(laporan.summary.total_iuran_anggota)} />
+                <SummaryCard icon="trending_up"
+                  iconBg="bg-primary-container" iconColor="text-primary"
+                  label="Saldo Akhir Arisan" value={formatRp(laporan.saldo_iuran_arisan.saldo_akhir)} />
                 <SummaryCard icon="restaurant" iconBg="bg-tertiary-container" iconColor="text-tertiary"
                   label="Total Konsumsi Anggota" value={formatRp(laporan.summary.total_iuran_konsumsi_anggota)} />
                 <SummaryCard icon="account_balance_wallet" iconBg="bg-secondary-container" iconColor="text-secondary"
@@ -550,6 +574,11 @@ export default function IuranPage() {
                   <p className="text-body-sm text-on-surface-variant">
                     Anggota aktif pada periode terpilih, otomatis dari data keanggotaan.
                   </p>
+                  {laporan && (
+                    <p className="text-body-sm text-on-surface-variant mt-1">
+                      Saldo awal arisan diambil dari saldo akhir bulan sebelumnya, lalu otomatis ditambah iuran arisan anggota bulan berjalan.
+                    </p>
+                  )}
                 </div>
                 {laporan && (
                   <span className="text-on-surface-variant text-[12px]">

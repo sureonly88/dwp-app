@@ -53,6 +53,9 @@ export async function GET(req: NextRequest) {
   // Summary
   lines.push("");
   lines.push(`Periode,${csvCell(laporan.periode.label)}`);
+  lines.push(`Saldo Awal Arisan Anggota,${laporan.saldo_iuran_arisan.saldo_awal}`);
+  lines.push(`Iuran Arisan Anggota Bulan Ini,${laporan.saldo_iuran_arisan.iuran_bulan_ini}`);
+  lines.push(`Saldo Akhir Arisan Anggota,${laporan.saldo_iuran_arisan.saldo_akhir}`);
   lines.push(`Total Anggota Aktif,${laporan.summary.total_anggota_aktif}`);
   lines.push(`Total Pengurus Aktif,${laporan.summary.total_pengurus_aktif}`);
   lines.push(`Total Iuran Arisan Anggota,${laporan.summary.total_iuran_anggota}`);

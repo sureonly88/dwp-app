@@ -1,6 +1,8 @@
 import pool from "./db";
 import type { RowDataPacket } from "mysql2";
 
+const SALDO_AWAL_ARISAN_ANGGOTA_MEI_2026_KEY = "saldo_awal_arisan_anggota_mei_2026";
+
 export interface LaporanRow {
   id: number;
   nama: string;
@@ -30,6 +32,11 @@ export interface LaporanResult {
   periode: { bulan: number; tahun: number; awal: string; akhir: string; label: string };
   tarif: { nominal_anggota: number; nominal_konsumsi_anggota: number; nominal_pengurus: number; periode_mulai: string | null } | null;
   rows: LaporanRow[];
+  saldo_iuran_arisan: {
+    saldo_awal: number;
+    iuran_bulan_ini: number;
+    saldo_akhir: number;
+  };
   summary: {
     total_anggota_aktif: number;
     total_pengurus_aktif: number;
@@ -39,6 +46,8 @@ export interface LaporanResult {
     grand_total: number;
   };
 }
+
+type LaporanBaseResult = Omit<LaporanResult, "saldo_iuran_arisan">;
 
 const BULAN_LABELS = [
   "Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -69,7 +78,7 @@ export function ensureIuranTarifSchema(): Promise<void> {
   return iuranTarifSchemaReady;
 }
 
-export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanResult> {
+async function buildLaporanIuranBase(filter: LaporanFilters): Promise<LaporanBaseResult> {
   await ensureIuranTarifSchema();
 
   const bulan = Math.max(1, Math.min(12, Math.trunc(filter.bulan)));
@@ -192,6 +201,57 @@ export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanRe
       total_iuran_konsumsi_anggota: totalIuranKonsumsiAnggota,
       total_iuran_pengurus: totalIuranPengurus,
       grand_total: totalIuranAnggota + totalIuranKonsumsiAnggota + totalIuranPengurus,
+    },
+  };
+}
+
+async function getTotalIuranArisanAnggotaGlobal(bulan: number, tahun: number): Promise<number> {
+  const laporan = await buildLaporanIuranBase({ bulan, tahun });
+  return laporan.summary.total_iuran_anggota;
+}
+
+async function getSaldoAwalArisanAnggotaMei2026(): Promise<number> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT value FROM app_settings WHERE key_name = ? LIMIT 1`,
+    [SALDO_AWAL_ARISAN_ANGGOTA_MEI_2026_KEY]
+  );
+
+  const rawValue = rows[0]?.value;
+  const parsed = Number(rawValue ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function getSaldoIuranArisanSebelumnya(bulan: number, tahun: number): Promise<number> {
+  if (tahun === 2026 && bulan >= 5) {
+    let saldo = await getSaldoAwalArisanAnggotaMei2026();
+
+    for (let month = 5; month < bulan; month += 1) {
+      saldo += await getTotalIuranArisanAnggotaGlobal(month, tahun);
+    }
+
+    return saldo;
+  }
+
+  let saldo = 0;
+
+  for (let month = 1; month < bulan; month += 1) {
+    saldo += await getTotalIuranArisanAnggotaGlobal(month, tahun);
+  }
+
+  return saldo;
+}
+
+export async function getLaporanIuran(filter: LaporanFilters): Promise<LaporanResult> {
+  const base = await buildLaporanIuranBase(filter);
+  const saldoAwalIuranArisan = await getSaldoIuranArisanSebelumnya(base.periode.bulan, base.periode.tahun);
+  const iuranBulanIni = await getTotalIuranArisanAnggotaGlobal(base.periode.bulan, base.periode.tahun);
+
+  return {
+    ...base,
+    saldo_iuran_arisan: {
+      saldo_awal: saldoAwalIuranArisan,
+      iuran_bulan_ini: iuranBulanIni,
+      saldo_akhir: saldoAwalIuranArisan + iuranBulanIni,
     },
   };
 }

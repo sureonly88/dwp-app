@@ -18,4 +18,5 @@ INSERT IGNORE INTO app_settings (key_name, value, label) VALUES
   ('org_timezone',      'Wita',                                      'Zona Waktu Default'),
   ('undangan_kepada',   'Pengurus & Anggota DWP',                   'Default Kepada (Undangan)'),
   ('undangan_jabatan',  'Ketua',                                     'Default Jabatan Penandatangan'),
-  ('undangan_nomor_prefix', 'DWP',                                  'Prefix Nomor Surat');
+  ('undangan_nomor_prefix', 'DWP',                                  'Prefix Nomor Surat'),
+  ('saldo_awal_arisan_anggota_mei_2026', '0',                       'Saldo Awal Arisan Anggota Mei 2026');

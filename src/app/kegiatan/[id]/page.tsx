@@ -511,7 +511,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
       <div class="code">${kegiatan.event_code}</div>
       <div class="url">${link}</div>
       <div class="ins">
-        Pindai QR di atas dengan kamera ponsel Anda, lalu masukkan NIP untuk mencatat kehadiran.
+        Pindai QR di atas dengan kamera ponsel Anda, lalu masukkan NIP atau nama suami untuk mencatat kehadiran.
       </div>
       <script>window.addEventListener('load',()=>{setTimeout(()=>window.print(),300)});</script>
       </body></html>`);
@@ -642,7 +642,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                 />
               </div>
               <p className="text-body-sm text-on-surface-variant text-center mb-4">
-                Anggota memindai QR ini lalu memasukkan NIP untuk mencatat kehadiran.
+                Anggota memindai QR ini lalu memasukkan NIP atau nama suami untuk mencatat kehadiran.
               </p>
               {origin && (
                 <div className="p-3 bg-surface-container-low border border-outline-variant rounded-lg mb-3 break-all">

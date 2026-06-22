@@ -52,6 +52,12 @@ const FIELDS: { key: string; label: string; placeholder?: string; hint?: string 
     placeholder: "DWP",
     hint: "Contoh: DWP → nomor surat menjadi DWP/001/V/2026",
   },
+  {
+    key: "saldo_awal_arisan_anggota_mei_2026",
+    label: "Saldo Awal Arisan Anggota Mei 2026",
+    placeholder: "0",
+    hint: "Dipakai sebagai saldo awal khusus untuk laporan iuran arisan anggota bulan Mei 2026.",
+  },
 ];
 
 export default function PengaturanPage() {
