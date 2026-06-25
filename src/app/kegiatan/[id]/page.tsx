@@ -5,6 +5,7 @@ import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
+import { STATUS_KEANGGOTAAN_OPTIONS, type StatusKeanggotaan } from "@/lib/anggota-options";
 
 interface Kegiatan {
   id: number;
@@ -34,6 +35,7 @@ interface PresensiItem {
   nip: string;
   jabatan: string;
   unit_kerja: string;
+  status_keanggotaan: StatusKeanggotaan;
 }
 
 interface AnggotaSuggest {
@@ -53,6 +55,13 @@ interface TamuItem {
   waktu_hadir: string;
 }
 
+const PRESENSI_PAGE_SIZE = 5;
+const INITIAL_ANGGOTA_PAGES: Record<StatusKeanggotaan, number> = {
+  "Istri Karyawan": 1,
+  Karyawati: 1,
+  Pengurus: 1,
+};
+
 function formatTanggal(dateStr: string) {
   if (!dateStr) return "-";
   return new Date(dateStr).toLocaleDateString("id-ID", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
@@ -62,8 +71,36 @@ function formatWaktuHadir(ts: string) {
   const d = new Date(ts);
   return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
-function getInitials(nama: string) {
-  return nama.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+function matchesPresensiSearch(item: PresensiItem, query: string) {
+  const keyword = query.trim().toLowerCase();
+  if (!keyword) return true;
+  return item.nama.toLowerCase().includes(keyword) || item.nip.includes(query.trim());
+}
+function buildCompactPageItems(totalPages: number, currentPage: number) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+
+  const pages = new Set<number>([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  if (currentPage <= 3) {
+    pages.add(2);
+    pages.add(3);
+    pages.add(4);
+  }
+  if (currentPage >= totalPages - 2) {
+    pages.add(totalPages - 1);
+    pages.add(totalPages - 2);
+    pages.add(totalPages - 3);
+  }
+
+  const sortedPages = [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
+  const compactItems: Array<number | "..."> = [];
+
+  sortedPages.forEach((page, index) => {
+    const previousPage = sortedPages[index - 1];
+    if (previousPage && page - previousPage > 1) compactItems.push("...");
+    compactItems.push(page);
+  });
+
+  return compactItems;
 }
 function statusVariant(s: Kegiatan["status"]) {
   switch (s) {
@@ -74,19 +111,27 @@ function statusVariant(s: Kegiatan["status"]) {
   }
 }
 
+function statusKeanggotaanVariant(status: StatusKeanggotaan) {
+  if (status === "Karyawati") return "info" as const;
+  if (status === "Pengurus") return "success" as const;
+  return "warning" as const;
+}
+
 export default function KegiatanDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const [kegiatan, setKegiatan] = useState<Kegiatan | null>(null);
   const [loading, setLoading] = useState(true);
   const [presensi, setPresensi] = useState<PresensiItem[]>([]);
   const [searchHadir, setSearchHadir] = useState("");
-  const [origin, setOrigin] = useState("");
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [hadirkanLoading, setHadirkanLoading] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<{ src: string; nama: string } | null>(null);
   const [totalAnggota, setTotalAnggota] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [anggotaPages, setAnggotaPages] = useState<Record<StatusKeanggotaan, number>>(INITIAL_ANGGOTA_PAGES);
+  const [tamuPage, setTamuPage] = useState(1);
 
   // Undangan
   const [undanganModal, setUndanganModal] = useState(false);
@@ -183,8 +228,8 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   }, [id]);
 
   useEffect(() => {
-    setOrigin(window.location.origin);
     fetchKegiatan();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Pemanggilan fetch awal halaman tetap mengikuti pola existing page.
     fetchTamu();
     fetch("/api/anggota?status=Aktif&limit=1")
       .then((r) => r.json())
@@ -219,6 +264,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   }, [fetchKegiatan, fetchTamu]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Pemanggilan fetch awal halaman tetap mengikuti pola existing page.
     fetchPresensi();
   }, [fetchPresensi]);
 
@@ -294,7 +340,6 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   // Anggota search suggestions for manual add
   useEffect(() => {
     if (!manualQuery.trim()) {
-      setSuggest([]);
       return;
     }
     const t = setTimeout(async () => {
@@ -453,20 +498,29 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     });
 
   const toggleSelectAll = () => {
-    const ids = presensiFiltered.map((p) => p.id);
-    const allChecked = ids.every((id) => selectedIds.has(id));
-    setSelectedIds(allChecked ? new Set() : new Set(ids));
+    const ids = visiblePresensiIds;
+    const everyChecked = ids.every((presensiId) => selectedIds.has(presensiId));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (everyChecked) {
+        ids.forEach((presensiId) => next.delete(presensiId));
+      } else {
+        ids.forEach((presensiId) => next.add(presensiId));
+      }
+      return next;
+    });
   };
 
   const exportCsv = () => {
     if (presensi.length === 0) return;
-    const header = ["Waktu Hadir", "Nama", "NIP", "Jabatan", "Unit Kerja", "Metode"];
+    const header = ["Waktu Hadir", "Nama", "NIP", "Jabatan", "Unit Kerja", "Status Keanggotaan", "Metode"];
     const rows = presensi.map((p) => [
       new Date(p.waktu_hadir).toLocaleString("id-ID"),
       p.nama,
       p.nip,
       p.jabatan,
       p.unit_kerja,
+      p.status_keanggotaan,
       p.metode,
     ]);
     const csv = [header, ...rows]
@@ -571,11 +625,41 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
 
   const totalAktif = totalAnggota ?? 0;
   const persen = totalAktif > 0 ? Math.min(100, Math.round((kegiatan.hadir_count / totalAktif) * 100)) : 0;
-  const presensiFiltered = presensi.filter((p) =>
-    !searchHadir || p.nama.toLowerCase().includes(searchHadir.toLowerCase()) || p.nip.includes(searchHadir)
-  );
-  const allChecked = presensiFiltered.length > 0 && presensiFiltered.every((p) => selectedIds.has(p.id));
-  const someChecked = presensiFiltered.some((p) => selectedIds.has(p.id));
+  const presensiFiltered = presensi.filter((p) => matchesPresensiSearch(p, searchHadir));
+  const presensiGroups = STATUS_KEANGGOTAAN_OPTIONS.map((status) => {
+    const items = presensiFiltered.filter((item) => item.status_keanggotaan === status);
+    const totalPages = Math.max(1, Math.ceil(items.length / PRESENSI_PAGE_SIZE));
+    const currentPage = Math.min(anggotaPages[status] ?? 1, totalPages);
+    const pageNumbers = buildCompactPageItems(totalPages, currentPage);
+    const startIndex = (currentPage - 1) * PRESENSI_PAGE_SIZE;
+    const pageItems = items.slice(startIndex, startIndex + PRESENSI_PAGE_SIZE);
+
+    return {
+      status,
+      items,
+      totalPages,
+      currentPage,
+      pageNumbers,
+      startIndex,
+      pageItems,
+      visibleStart: items.length === 0 ? 0 : startIndex + 1,
+      visibleEnd: items.length === 0 ? 0 : startIndex + pageItems.length,
+    };
+  });
+  const presensiGroupSummary = STATUS_KEANGGOTAAN_OPTIONS.map((status) => ({
+    status,
+    count: presensiFiltered.filter((item) => item.status_keanggotaan === status).length,
+  }));
+  const visiblePresensiIds = presensiGroups.flatMap((group) => group.pageItems.map((item) => item.id));
+  const allChecked = visiblePresensiIds.length > 0 && visiblePresensiIds.every((id) => selectedIds.has(id));
+  const someChecked = visiblePresensiIds.some((id) => selectedIds.has(id));
+  const totalTamuPages = Math.max(1, Math.ceil(tamu.length / PRESENSI_PAGE_SIZE));
+  const currentTamuPage = Math.min(tamuPage, totalTamuPages);
+  const tamuPageNumbers = buildCompactPageItems(totalTamuPages, currentTamuPage);
+  const tamuStartIndex = (currentTamuPage - 1) * PRESENSI_PAGE_SIZE;
+  const tamuPageItems = tamu.slice(tamuStartIndex, tamuStartIndex + PRESENSI_PAGE_SIZE);
+  const tamuVisibleStart = tamu.length === 0 ? 0 : tamuStartIndex + 1;
+  const tamuVisibleEnd = tamu.length === 0 ? 0 : tamuStartIndex + tamuPageItems.length;
 
   return (
     <AppLayout>
@@ -763,11 +847,24 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                     <input
                       type="text"
                       value={searchHadir}
-                      onChange={(e) => setSearchHadir(e.target.value)}
+                      onChange={(e) => {
+                        setSearchHadir(e.target.value);
+                        setAnggotaPages(INITIAL_ANGGOTA_PAGES);
+                      }}
                       placeholder="Cari nama / NIP..."
                       className="pl-9 pr-4 py-2 border border-outline-variant rounded-lg text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface min-w-[220px]"
                     />
                   </div>
+                  <label className="inline-flex items-center gap-2 px-3 py-2 border border-outline-variant rounded-lg text-label-sm text-on-surface-variant">
+                    <input
+                      type="checkbox"
+                      checked={allChecked}
+                      ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-outline-variant accent-primary cursor-pointer"
+                    />
+                    Pilih yang tampil
+                  </label>
                   <button
                     onClick={handleHadirkanSemua}
                     disabled={hadirkanLoading || bulkDeleting}
@@ -819,181 +916,253 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                   )}
                 </div>
               </div>
+              {presensiFiltered.length > 0 && (
+                <div className="px-6 py-4 border-t border-outline-variant flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-body-sm text-on-surface-variant">
+                    Menampilkan daftar hadir anggota berdasarkan status keanggotaan.
+                  </p>
+                  <div className="flex flex-wrap items-center justify-end gap-2 self-end sm:self-auto">
+                    {presensiGroupSummary.map((group) => (
+                      <Badge
+                        key={`summary-${group.status}`}
+                        label={`${group.status}: ${group.count}`}
+                        variant={statusKeanggotaanVariant(group.status)}
+                      />
+                    ))}
+                    <Badge
+                      label={`Tamu: ${tamu.length}`}
+                      variant="neutral"
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="p-6 grid grid-cols-1 xl:grid-cols-3 gap-4">
+                {presensiGroups.map((group) => (
+                  <Card key={group.status} className="overflow-hidden border border-outline-variant">
+                    <div className="p-4 border-b border-outline-variant bg-surface-container-low flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="font-label-md text-label-md text-on-surface">{group.status}</h4>
+                        <p className="text-[11px] text-on-surface-variant">{group.items.length} anggota</p>
+                      </div>
+                      <Badge label={group.status} variant={statusKeanggotaanVariant(group.status)} />
+                    </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-surface-container-low">
-                      <th className="px-4 py-4 border-b border-outline-variant w-10">
-                        <input
-                          type="checkbox"
-                          checked={allChecked}
-                          ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
-                          onChange={toggleSelectAll}
-                          className="w-4 h-4 rounded border-outline-variant accent-primary cursor-pointer"
-                        />
-                      </th>
-                      {["#", "Foto", "Anggota", "NIP", "Unit Kerja", "Waktu", "Metode", ""].map((h, i) => (
-                        <th key={i} className="px-6 py-4 font-label-md text-label-md text-on-surface-variant border-b border-outline-variant whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-variant">
-                    {presensiFiltered.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="px-6 py-16 text-center text-on-surface-variant text-body-sm">
-                          <span className="material-symbols-outlined text-[48px] block mb-3 opacity-30">how_to_reg</span>
-                          {presensi.length === 0
-                            ? "Belum ada anggota yang melakukan presensi."
-                            : "Tidak ada hasil sesuai pencarian."}
-                        </td>
-                      </tr>
-                    ) : (
-                      presensiFiltered.map((p, i) => (
-                          <tr key={p.id} className={`transition-colors duration-700 ${selectedIds.has(p.id) ? "bg-primary-fixed/30" : highlightedIds.has(p.id) ? "bg-tertiary-container/40" : "hover:bg-surface-container-low/50"}`}>
-                            <td className="px-4 py-3 w-10">
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.has(p.id)}
-                                onChange={() => toggleSelect(p.id)}
-                                className="w-4 h-4 rounded border-outline-variant accent-primary cursor-pointer"
-                              />
-                            </td>
-                          <td className="px-6 py-3 text-body-sm text-on-surface-variant w-12">{i + 1}</td>
-                          <td className="px-6 py-3">
-                            {p.foto ? (
-                              <button
-                                onClick={() => setPhotoPreview({ src: p.foto!, nama: p.nama })}
-                                title="Lihat foto selfie"
-                                className="block w-12 h-12 rounded-lg overflow-hidden border border-outline-variant hover:border-primary transition-colors"
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={p.foto} alt={`Selfie ${p.nama}`} className="w-full h-full object-cover" />
-                              </button>
-                            ) : (
-                              <div className="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface-variant">
-                                <span className="material-symbols-outlined text-[18px]">image_not_supported</span>
+                    <div className="divide-y divide-outline-variant min-h-[332px]">
+                      {group.items.length === 0 ? (
+                        <div className="px-4 py-10 text-center text-on-surface-variant text-body-sm">
+                          <span className="material-symbols-outlined text-[40px] block mb-2 opacity-30">groups</span>
+                          Tidak ada data pada kategori ini.
+                        </div>
+                      ) : (
+                        group.pageItems.map((p, i) => (
+                          <div
+                            key={p.id}
+                            className={`p-4 flex gap-3 transition-colors duration-700 ${selectedIds.has(p.id) ? "bg-primary-fixed/30" : highlightedIds.has(p.id) ? "bg-tertiary-container/40" : "hover:bg-surface-container-low/50"}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(p.id)}
+                              onChange={() => toggleSelect(p.id)}
+                              className="mt-1 w-4 h-4 rounded border-outline-variant accent-primary cursor-pointer shrink-0"
+                            />
+                            <div className="shrink-0 text-body-sm text-on-surface-variant w-6">{group.startIndex + i + 1}</div>
+                            <div className="shrink-0">
+                              {p.foto ? (
+                                <button
+                                  onClick={() => setPhotoPreview({ src: p.foto!, nama: p.nama })}
+                                  title="Lihat foto selfie"
+                                  className="block w-11 h-11 rounded-lg overflow-hidden border border-outline-variant hover:border-primary transition-colors"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={p.foto} alt={`Selfie ${p.nama}`} className="w-full h-full object-cover" />
+                                </button>
+                              ) : (
+                                <div className="w-11 h-11 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface-variant">
+                                  <span className="material-symbols-outlined text-[16px]">image_not_supported</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="font-label-md text-label-md text-on-surface leading-tight truncate">{p.nama}</p>
+                                  <p className="text-[11px] text-on-surface-variant truncate">{p.jabatan}</p>
+                                </div>
+                                <button
+                                  onClick={() => handleHapusPresensi(p.id, p.nama)}
+                                  title="Hapus presensi"
+                                  className="p-1 rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors shrink-0"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                                </button>
                               </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-xs flex-shrink-0">
-                                {getInitials(p.nama)}
-                              </div>
-                              <div>
-                                <p className="font-label-md text-label-md text-on-surface leading-tight">{p.nama}</p>
-                                <p className="text-[11px] text-on-surface-variant">{p.jabatan}</p>
+                              <div className="mt-2 space-y-1">
+                                <p className="text-[11px] font-mono text-on-surface-variant truncate">{p.nip}</p>
+                                <p className="text-[11px] text-on-surface-variant truncate">{p.unit_kerja}</p>
+                                <div className="flex items-center justify-between gap-2 pt-1">
+                                  <span className="text-[11px] text-on-surface-variant">{formatWaktuHadir(p.waktu_hadir)}</span>
+                                  <Badge label={p.metode} variant={p.metode === "QR" ? "info" : "warning"} />
+                                </div>
                               </div>
                             </div>
-                          </td>
-                          <td className="px-6 py-3 font-mono text-body-sm text-on-surface-variant whitespace-nowrap">{p.nip}</td>
-                          <td className="px-6 py-3 text-body-sm text-on-surface">{p.unit_kerja}</td>
-                          <td className="px-6 py-3 text-body-sm text-on-surface-variant whitespace-nowrap">
-                            {formatWaktuHadir(p.waktu_hadir)}
-                          </td>
-                          <td className="px-6 py-3">
-                            <Badge
-                              label={p.metode}
-                              variant={p.metode === "QR" ? "info" : "warning"}
-                            />
-                          </td>
-                          <td className="px-6 py-3">
-                            <button
-                              onClick={() => handleHapusPresensi(p.id, p.nama)}
-                              title="Hapus presensi"
-                              className="p-1.5 rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-[18px]">delete</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
+                          </div>
+                        ))
+                      )}
+                    </div>
 
-            {/* Tamu (Non-Anggota) */}
-            <Card>
-              <div className="p-6 border-b border-outline-variant flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h3 className="font-h3 text-h3 text-on-surface">Tamu (Non-Anggota)</h3>
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-label-sm font-semibold bg-secondary-container text-on-secondary-container">
-                    <span className="material-symbols-outlined text-[14px]">info</span>
-                    Ikut Doorprize, tidak ikut Arisan
-                  </span>
-                </div>
-                <span className="text-label-md text-on-surface-variant">{tamu.length} tamu</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-surface-container-low">
-                      {["#", "Foto", "Nama Tamu", "Instansi / Asal", "Waktu Hadir", ""].map((h, i) => (
-                        <th key={i} className="px-6 py-4 font-label-md text-label-md text-on-surface-variant border-b border-outline-variant whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-variant">
+                    {group.items.length > 0 && (
+                      <div className="p-4 border-t border-outline-variant bg-surface-container-low flex flex-col gap-3">
+                        <p className="text-[11px] text-on-surface-variant">
+                          Menampilkan {group.visibleStart}-{group.visibleEnd} dari {group.items.length} anggota
+                        </p>
+                        <div className="flex items-center justify-between gap-2">
+                          <button
+                            onClick={() => setAnggotaPages((prev) => ({ ...prev, [group.status]: Math.max(1, group.currentPage - 1) }))}
+                            disabled={group.currentPage === 1}
+                            className="px-2.5 py-1.5 border border-outline-variant rounded-lg text-label-sm text-on-surface-variant hover:bg-surface disabled:opacity-40"
+                          >
+                            Sebelumnya
+                          </button>
+                          <div className="flex flex-wrap items-center justify-center gap-1.5">
+                            {group.pageNumbers.map((pageNumber, index) => {
+                              if (pageNumber === "...") {
+                                return <span key={`ellipsis-${group.status}-${index}`} className="px-1 text-label-sm text-on-surface-variant">...</span>;
+                              }
+
+                              const isActive = pageNumber === group.currentPage;
+                              return (
+                                <button
+                                  key={`${group.status}-${pageNumber}`}
+                                  onClick={() => setAnggotaPages((prev) => ({ ...prev, [group.status]: pageNumber }))}
+                                  className={`min-w-8 px-2 py-1.5 rounded-md text-label-sm transition-colors ${
+                                    isActive
+                                      ? "bg-primary text-on-primary"
+                                      : "border border-outline-variant text-on-surface-variant hover:bg-surface"
+                                  }`}
+                                >
+                                  {pageNumber}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <button
+                            onClick={() => setAnggotaPages((prev) => ({ ...prev, [group.status]: Math.min(group.totalPages, group.currentPage + 1) }))}
+                            disabled={group.currentPage === group.totalPages}
+                            className="px-2.5 py-1.5 border border-outline-variant rounded-lg text-label-sm text-on-surface-variant hover:bg-surface disabled:opacity-40"
+                          >
+                            Berikutnya
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+                ))}
+
+                <Card className="overflow-hidden border border-outline-variant">
+                  <div className="p-4 border-b border-outline-variant bg-surface-container-low flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-label-md text-label-md text-on-surface">Tamu / Non-Anggota</h4>
+                      <p className="text-[11px] text-on-surface-variant">{tamu.length} tamu</p>
+                    </div>
+                    <Badge label="Tamu" variant="neutral" />
+                  </div>
+
+                  <div className="divide-y divide-outline-variant min-h-[332px]">
                     {tamu.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-on-surface-variant text-body-sm">
-                          <span className="material-symbols-outlined text-[48px] block mb-3 opacity-30">groups</span>
-                          Belum ada tamu yang dicatat.
-                        </td>
-                      </tr>
+                      <div className="px-4 py-10 text-center text-on-surface-variant text-body-sm">
+                        <span className="material-symbols-outlined text-[40px] block mb-2 opacity-30">person_outline</span>
+                        Belum ada tamu yang dicatat.
+                      </div>
                     ) : (
-                      tamu.map((t, i) => (
-                        <tr key={t.id} className="hover:bg-surface-container-low/50 transition-colors">
-                          <td className="px-6 py-3 text-body-sm text-on-surface-variant w-12">{i + 1}</td>
-                          <td className="px-6 py-3">
+                      tamuPageItems.map((t, i) => (
+                        <div key={t.id} className="p-4 flex gap-3 hover:bg-surface-container-low/50 transition-colors">
+                          <div className="shrink-0 text-body-sm text-on-surface-variant w-6">{tamuStartIndex + i + 1}</div>
+                          <div className="shrink-0">
                             {t.foto ? (
                               <button
                                 onClick={() => setPhotoPreview({ src: t.foto!, nama: t.nama })}
                                 title="Lihat foto selfie"
-                                className="block w-12 h-12 rounded-lg overflow-hidden border border-outline-variant hover:border-secondary transition-colors"
+                                className="block w-11 h-11 rounded-lg overflow-hidden border border-outline-variant hover:border-secondary transition-colors"
                               >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={t.foto} alt={`Selfie ${t.nama}`} className="w-full h-full object-cover" />
                               </button>
                             ) : (
-                              <div className="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface-variant">
-                                <span className="material-symbols-outlined text-[18px]">image_not_supported</span>
+                              <div className="w-11 h-11 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface-variant">
+                                <span className="material-symbols-outlined text-[16px]">image_not_supported</span>
                               </div>
                             )}
-                          </td>
-                          <td className="px-6 py-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center font-bold text-xs flex-shrink-0">
-                                {getInitials(t.nama)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-label-md text-label-md text-on-surface leading-tight truncate">{t.nama}</p>
+                                <p className="text-[11px] text-on-surface-variant truncate">{t.instansi ?? "Instansi tidak diisi"}</p>
                               </div>
-                              <p className="font-label-md text-label-md text-on-surface">{t.nama}</p>
+                              <button
+                                onClick={() => handleHapusTamu(t.id, t.nama)}
+                                title="Hapus tamu"
+                                className="p-1 rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors shrink-0"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">delete</span>
+                              </button>
                             </div>
-                          </td>
-                          <td className="px-6 py-3 text-body-sm text-on-surface-variant">{t.instansi ?? "-"}</td>
-                          <td className="px-6 py-3 text-body-sm text-on-surface-variant whitespace-nowrap">
-                            {formatWaktuHadir(t.waktu_hadir)}
-                          </td>
-                          <td className="px-6 py-3">
-                            <button
-                              onClick={() => handleHapusTamu(t.id, t.nama)}
-                              title="Hapus tamu"
-                              className="p-1.5 rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-[18px]">delete</span>
-                            </button>
-                          </td>
-                        </tr>
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-on-surface-variant">{formatWaktuHadir(t.waktu_hadir)}</span>
+                              <Badge label="Doorprize" variant="warning" />
+                            </div>
+                          </div>
+                        </div>
                       ))
                     )}
-                  </tbody>
-                </table>
+                  </div>
+
+                  {tamu.length > 0 && (
+                    <div className="p-4 border-t border-outline-variant bg-surface-container-low flex flex-col gap-3">
+                      <p className="text-[11px] text-on-surface-variant">
+                        Menampilkan {tamuVisibleStart}-{tamuVisibleEnd} dari {tamu.length} tamu
+                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => setTamuPage((prev) => Math.max(1, prev - 1))}
+                          disabled={currentTamuPage === 1}
+                          className="px-2.5 py-1.5 border border-outline-variant rounded-lg text-label-sm text-on-surface-variant hover:bg-surface disabled:opacity-40"
+                        >
+                          Sebelumnya
+                        </button>
+                        <div className="flex flex-wrap items-center justify-center gap-1.5">
+                          {tamuPageNumbers.map((pageNumber, index) => {
+                            if (pageNumber === "...") {
+                              return <span key={`ellipsis-tamu-${index}`} className="px-1 text-label-sm text-on-surface-variant">...</span>;
+                            }
+
+                            const isActive = pageNumber === currentTamuPage;
+                            return (
+                              <button
+                                key={`tamu-${pageNumber}`}
+                                onClick={() => setTamuPage(pageNumber)}
+                                className={`min-w-8 px-2 py-1.5 rounded-md text-label-sm transition-colors ${
+                                  isActive
+                                    ? "bg-primary text-on-primary"
+                                    : "border border-outline-variant text-on-surface-variant hover:bg-surface"
+                                }`}
+                              >
+                                {pageNumber}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <button
+                          onClick={() => setTamuPage((prev) => Math.min(totalTamuPages, prev + 1))}
+                          disabled={currentTamuPage === totalTamuPages}
+                          className="px-2.5 py-1.5 border border-outline-variant rounded-lg text-label-sm text-on-surface-variant hover:bg-surface disabled:opacity-40"
+                        >
+                          Berikutnya
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </Card>
               </div>
             </Card>
           </div>
@@ -1046,7 +1215,11 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                     <input
                       autoFocus
                       value={manualQuery}
-                      onChange={(e) => setManualQuery(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setManualQuery(value);
+                        if (!value.trim()) setSuggest([]);
+                      }}
                       placeholder="Cari nama atau NIP anggota..."
                       className="w-full pl-9 pr-4 py-2.5 border border-outline-variant rounded-lg text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface"
                     />

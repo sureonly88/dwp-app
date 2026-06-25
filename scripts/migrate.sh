@@ -71,6 +71,12 @@ run_sql "$SCRIPTS_DIR/setup-iuran.sql"
 # 6b. Tambah kolom tanggal_pensiun pada anggota
 run_sql "$SCRIPTS_DIR/migrate-anggota-tanggal-pensiun.sql"
 
+# 6c. Tambah kolom tanggal_lahir pada anggota
+run_sql "$SCRIPTS_DIR/migrate-anggota-tanggal-lahir.sql"
+
+# 6d. Tambah kolom status_keanggotaan pada anggota
+run_sql "$SCRIPTS_DIR/migrate-anggota-status-keanggotaan.sql"
+
 # 7. Arisan & doorprize
 run_sql "$SCRIPTS_DIR/setup-undian.sql"
 run_sql "$SCRIPTS_DIR/migrate-doorprize-peserta.sql"

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
+import { buildCurrentActiveCondition } from "@/lib/anggota";
 
 // GET /api/arisan/[kegiatan_id] — setup + winners
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
@@ -41,7 +42,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
       `SELECT COUNT(*) AS eligible_count
        FROM anggota a
        INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-       WHERE a.status = 'Aktif'
+       WHERE ${buildCurrentActiveCondition("a")}
          AND a.id NOT IN (
            SELECT anggota_id FROM arisan_winners WHERE kegiatan_id = ?
          )

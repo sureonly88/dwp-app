@@ -32,6 +32,15 @@ interface Winner {
   waktu: string;
 }
 
+interface DrawWinner {
+  id: number;
+  urutan: number;
+  nama: string;
+  pesertaTipe: "anggota" | "tamu";
+  unit: string | null;
+  jabatan: string | null;
+}
+
 type SpinState = "idle" | "running" | "stopping";
 
 function formatTanggal(s: string) {
@@ -80,12 +89,14 @@ export default function DoorprizePage() {
   const [undianOpen, setUndianOpen] = useState(false);
   const [spinState, setSpinState] = useState<SpinState>("idle");
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const [lastWinner, setLastWinner] = useState<{ id: number; nama: string; pesertaTipe: "anggota" | "tamu"; unit: string | null; jabatan: string | null } | null>(null);
+  const [displayNames, setDisplayNames] = useState<string[]>([]);
+  const [lastWinners, setLastWinners] = useState<DrawWinner[]>([]);
   const [rollNames, setRollNames] = useState<string[]>([]);
   const rollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const rollIdxRef = useRef(0);
   const slowingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastPlayedWinnerKeyRef = useRef("");
   const [celebrating, setCelebrating] = useState(false);
   const [undiError, setUndiError] = useState<string | null>(null);
 
@@ -176,8 +187,10 @@ export default function DoorprizePage() {
     if (selectedId !== null) {
       await loadDetail(selectedId);
     }
+    lastPlayedWinnerKeyRef.current = "";
     setDisplayName(null);
-    setLastWinner(null);
+    setDisplayNames([]);
+    setLastWinners([]);
     setSpinState("idle");
     setUndiError(null);
     setUndianOpen(true);
@@ -187,6 +200,10 @@ export default function DoorprizePage() {
     if (spinState !== "idle") return;
     if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
     slowingRef.current = false;
+    lastPlayedWinnerKeyRef.current = "";
+    setDisplayName(null);
+    setDisplayNames([]);
+    setCelebrating(false);
     setUndianOpen(false);
   };
 
@@ -201,6 +218,30 @@ export default function DoorprizePage() {
       }
       return audioCtxRef.current;
     } catch { return null; }
+  };
+  const primeAudioCtx = () => {
+    const ctx = getAudioCtx();
+    if (!ctx) return null;
+
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => null);
+    }
+
+    if (ctx.state !== "running") return ctx;
+
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.00001, ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.01);
+    } catch {
+      // ignore warm-up failures
+    }
+
+    return ctx;
   };
   // hi-hat: crisp noise tick — used during fast spin
   const playHihat = () => {
@@ -329,23 +370,22 @@ export default function DoorprizePage() {
       return;
     }
     setUndiError(null);
-    const ac = getAudioCtx();
-    if (ac) ac.resume().catch(() => {});
+    primeAudioCtx();
     setSpinState("running");
-    setDisplayName(null);
-    setLastWinner(null);
+    setDisplayName(rollNames[rollIdxRef.current] ?? null);
+    setDisplayNames([]);
+    setLastWinners([]);
     rollIdxRef.current = 0;
     rollIntervalRef.current = setInterval(() => {
       rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
-      setDisplayName(rollNames[rollIdxRef.current]);
+      setDisplayName(rollNames[rollIdxRef.current] ?? null);
       playHihat();
     }, 80);
   };
 
   const handleStop = async () => {
     if (spinState !== "running" || !selectedId) return;
-    const ac = getAudioCtx();
-    if (ac) ac.resume().catch(() => {});
+    primeAudioCtx();
     setSpinState("stopping");
 
     slowingRef.current = true;
@@ -356,7 +396,8 @@ export default function DoorprizePage() {
       delay = Math.min(delay * 1.35, 400);
       rollIntervalRef.current = setInterval(() => {
         rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
-        setDisplayName(rollNames[rollIdxRef.current]);
+        setDisplayName(rollNames[rollIdxRef.current] ?? null);
+        setDisplayNames([]);
         if (delay < 150) {
           playHihat();
         } else {
@@ -379,30 +420,49 @@ export default function DoorprizePage() {
       if (!res.ok) {
         setSpinState("idle");
         setDisplayName(null);
+        setDisplayNames([]);
         setUndiError(json.error ?? "Gagal mengundi");
         showToast(json.error ?? "Gagal mengundi", "error");
         return;
       }
 
       setUndiError(null);
-      setLastWinner({
-        id: json.winner.id,
-        nama: json.winner.nama,
-        pesertaTipe: json.winner.peserta_tipe,
-        unit: json.winner.unit_kerja,
-        jabatan: json.winner.jabatan,
-      });
-      setDisplayName(json.winner.nama);
+      const drawnWinners: DrawWinner[] = Array.isArray(json.winners)
+        ? json.winners.map((winner: {
+            id: number;
+            urutan: number;
+            nama: string;
+            peserta_tipe: "anggota" | "tamu";
+            unit_kerja: string | null;
+            jabatan: string | null;
+          }) => ({
+            id: winner.id,
+            urutan: winner.urutan,
+            nama: winner.nama,
+            pesertaTipe: winner.peserta_tipe,
+            unit: winner.unit_kerja,
+            jabatan: winner.jabatan,
+          }))
+        : [];
+
+      const winnerKey = drawnWinners.map((winner) => winner.id).join(",");
+      if (winnerKey) {
+        lastPlayedWinnerKeyRef.current = winnerKey;
+      }
+      setLastWinners(drawnWinners);
+      setDisplayName(null);
+      setDisplayNames([]);
       playVictorySound();
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 5500);
-      showToast(`Pemenang Hadiah ke-${json.winner.urutan}: ${json.winner.nama}`);
+      showToast(`${drawnWinners.length} pemenang berhasil diundi`);
       loadDetail(selectedId);
     } catch {
       if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
       rollIntervalRef.current = null;
       setSpinState("idle");
       setDisplayName(null);
+      setDisplayNames([]);
       showToast("Gagal mengundi", "error");
       return;
     }
@@ -425,6 +485,7 @@ export default function DoorprizePage() {
 
   const isSlotFull = setup ? winners.length >= setup.jumlah_hadiah : false;
   const canStart = spinState === "idle" && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
+  const highlightedWinnerIds = new Set(lastWinners.map((winner) => winner.id));
 
   return (
     <AppLayout>
@@ -589,7 +650,7 @@ export default function DoorprizePage() {
                 ? "bg-tertiary text-on-tertiary"
                 : spinState === "stopping"
                 ? "bg-secondary text-on-secondary"
-                : lastWinner
+                : lastWinners.length > 0
                 ? "bg-primary text-on-primary"
                 : isSlotFull
                 ? "bg-tertiary-container text-on-tertiary-container"
@@ -597,34 +658,73 @@ export default function DoorprizePage() {
             }`}>
               {spinState === "running" && "🎲 Sedang Bergulir..."}
               {spinState === "stopping" && "⏳ Melambat..."}
-              {spinState === "idle" && lastWinner && "🎁 Pemenang!"}
-              {spinState === "idle" && !lastWinner && !isSlotFull && "Siap Mengundi"}
-              {spinState === "idle" && !lastWinner && isSlotFull && "✅ Semua Hadiah Terisi"}
+              {spinState === "idle" && lastWinners.length > 0 && "🎁 Pemenang!"}
+              {spinState === "idle" && lastWinners.length === 0 && !isSlotFull && "Siap Mengundi"}
+              {spinState === "idle" && lastWinners.length === 0 && isSlotFull && "✅ Semua Hadiah Terisi"}
             </div>
 
             {/* Name display */}
             <div className="text-center">
               <p className="text-on-surface-variant text-[11px] uppercase tracking-[0.3em] mb-4">
-                {spinState === "idle" && lastWinner ? "PEMENANG DOORPRIZE" : "NAMA PESERTA"}
+                {spinState === "idle" && lastWinners.length > 0 ? "PEMENANG DOORPRIZE" : "NAMA PESERTA"}
               </p>
-              <h1
-                key={lastWinner?.id ?? "idle"}
-                className={`font-bold leading-tight uppercase ${
-                  spinState !== "idle"
-                    ? "text-6xl text-on-surface-variant/50 transition-all duration-100"
-                    : lastWinner
-                    ? "text-8xl text-primary winner-reveal"
-                    : "text-6xl text-on-surface-variant/20"
-                }`}
-              >
-                {displayName ?? "— — —"}
-              </h1>
-              {spinState === "idle" && lastWinner && (
-                <p className="mt-4 text-on-surface-variant text-[14px] shimmer-text">
-                  {lastWinner.pesertaTipe === "tamu" ? "Tamu Hadir" : "Anggota Hadir"}
-                  {lastWinner.unit ? ` · ${lastWinner.unit}` : ""}
-                  {lastWinner.jabatan ? ` · ${lastWinner.jabatan}` : ""}
-                </p>
+              {spinState === "idle" && lastWinners.length > 0 ? (
+                <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 winner-reveal">
+                  {lastWinners.map((winner) => (
+                    <div
+                      key={winner.id}
+                      className="rounded-2xl border border-primary/20 bg-primary-fixed px-5 py-6 shadow-lg"
+                    >
+                      <p className="text-[11px] uppercase tracking-[0.25em] text-on-primary-fixed-variant/70 mb-3">
+                        Hadiah ke-{winner.urutan}
+                      </p>
+                      <h2 className="text-2xl font-bold text-primary uppercase leading-tight break-words">
+                        {winner.nama}
+                      </h2>
+                      <p className="mt-3 text-[13px] text-on-primary-fixed-variant shimmer-text">
+                        {winner.pesertaTipe === "tamu" ? "Tamu Hadir" : "Anggota Hadir"}
+                        {winner.unit ? ` · ${winner.unit}` : ""}
+                        {winner.jabatan ? ` · ${winner.jabatan}` : ""}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                spinState === "running" || spinState === "stopping" ? (
+                  <h1 className="text-6xl font-bold leading-tight uppercase text-on-surface-variant/50 transition-all duration-100">
+                    {displayName ?? "— — —"}
+                  </h1>
+                ) : displayNames.length > 0 ? (
+                  <div className="w-full max-w-6xl grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+                    {displayNames.map((name, index) => (
+                      <div
+                        key={`${name}-${index}`}
+                        className={`rounded-2xl border px-5 py-6 shadow-sm transition-all ${
+                          spinState !== "idle"
+                            ? "border-outline-variant bg-surface-container-high text-on-surface"
+                            : "border-outline-variant/50 bg-surface-container-low text-on-surface-variant"
+                        }`}
+                      >
+                        <p className="text-[10px] uppercase tracking-[0.25em] opacity-70 mb-2">
+                          Peserta {index + 1}
+                        </p>
+                        <h2 className="text-2xl font-bold uppercase leading-tight break-words">
+                          {name}
+                        </h2>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <h1
+                    className={`font-bold leading-tight uppercase ${
+                      spinState !== "idle"
+                        ? "text-6xl text-on-surface-variant/50 transition-all duration-100"
+                        : "text-6xl text-on-surface-variant/20"
+                    }`}
+                  >
+                    — — —
+                  </h1>
+                )
               )}
             </div>
 
@@ -651,9 +751,9 @@ export default function DoorprizePage() {
             <p className="text-on-surface-variant text-[12px] text-center">
               {isSlotFull
                 ? "Semua hadiah sudah memiliki pemenang."
-                : lastWinner
-                ? "Klik MULAI untuk mengundi hadiah berikutnya."
-                : "Klik MULAI untuk memutar nama, lalu klik STOP untuk memilih pemenang."}
+                : lastWinners.length > 0
+                ? "Klik MULAI untuk mengundi putaran berikutnya dengan maksimal 10 pemenang lagi."
+                : "Klik MULAI untuk memutar nama peserta, lalu klik STOP untuk memilih maksimal 10 pemenang sekaligus."}
             </p>
           </div>
 
@@ -671,7 +771,7 @@ export default function DoorprizePage() {
                     <div
                       key={w.id}
                       className={`flex-shrink-0 flex flex-col gap-1 px-4 py-2.5 rounded-xl border ${
-                        lastWinner && w.id === lastWinner.id
+                        highlightedWinnerIds.has(w.id)
                           ? "bg-primary-fixed border-primary/40"
                           : "bg-surface-container border-outline-variant"
                       }`}
@@ -718,8 +818,9 @@ export default function DoorprizePage() {
                   setEligibleCount(null);
                   setRollNames([]);
                   setUndiError(null);
-                  setLastWinner(null);
+                  setLastWinners([]);
                   setDisplayName(null);
+                  setDisplayNames([]);
                 }}
                 className="w-full appearance-none border border-outline-variant rounded-lg pl-10 pr-10 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11"
               >

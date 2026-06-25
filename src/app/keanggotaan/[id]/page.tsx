@@ -5,6 +5,7 @@ import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
+import type { StatusKeanggotaan } from "@/lib/anggota-options";
 
 interface Anggota {
   id: number;
@@ -13,9 +14,11 @@ interface Anggota {
   jabatan: string;
   unit_kerja: string;
   status: "Aktif" | "Non-Aktif" | "Cuti";
+  status_keanggotaan: StatusKeanggotaan;
   no_hp: string | null;
   email: string | null;
   alamat: string | null;
+  tanggal_lahir: string | null;
   join_date: string;
   tanggal_keluar: string | null;
 }
@@ -121,7 +124,10 @@ export default function AnggotaDetailPage({ params }: { params: Promise<{ id: st
     }
   }, [id]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { void fetchAll(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [fetchAll]);
 
   if (notFound) {
     return (
@@ -188,8 +194,16 @@ export default function AnggotaDetailPage({ params }: { params: Promise<{ id: st
                     <span className="font-mono">{anggota.nip}</span>
                   </div>
                   <div className="flex items-center gap-2 text-on-surface-variant">
+                    <span className="material-symbols-outlined text-[16px]">cake</span>
+                    <span>Lahir: {formatTanggal(anggota.tanggal_lahir)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-on-surface-variant">
                     <span className="material-symbols-outlined text-[16px]">calendar_today</span>
                     <span>Bergabung: {formatTanggal(anggota.join_date)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-on-surface-variant">
+                    <span className="material-symbols-outlined text-[16px]">group</span>
+                    <span>Status Keanggotaan: {anggota.status_keanggotaan}</span>
                   </div>
                   {anggota.no_hp && (
                     <a href={`https://wa.me/${anggota.no_hp.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer"

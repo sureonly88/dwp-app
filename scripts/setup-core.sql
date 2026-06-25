@@ -23,9 +23,11 @@ CREATE TABLE IF NOT EXISTS anggota (
   jabatan         VARCHAR(100)  NOT NULL,
   unit_kerja      VARCHAR(100)  NOT NULL,
   status          ENUM('Aktif','Non-Aktif','Cuti') NOT NULL DEFAULT 'Aktif',
+  status_keanggotaan ENUM('Istri Karyawan','Karyawati','Pengurus') NOT NULL DEFAULT 'Istri Karyawan',
   no_hp           VARCHAR(20)   NULL,
   email           VARCHAR(120)  NULL,
   alamat          TEXT          NULL,
+  tanggal_lahir   DATE          NULL,
   join_date       DATE          NOT NULL,
   tanggal_keluar  DATE          NULL,
   tanggal_pensiun DATE          NULL,
@@ -33,5 +35,6 @@ CREATE TABLE IF NOT EXISTS anggota (
   updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY  uniq_nip            (nip),
   INDEX       idx_anggota_status  (status),
+  INDEX       idx_anggota_status_keanggotaan (status_keanggotaan),
   INDEX       idx_anggota_unit    (unit_kerja)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

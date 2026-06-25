@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
+import { ensureAnggotaSchema } from "@/lib/anggota";
 
 /**
  * GET /api/kegiatan/[id]/presensi/stream
@@ -18,12 +19,14 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await ensureAnggotaSchema();
+
   const { id } = await params;
 
   // Snapshot the current state before opening the stream
   let lastPresensiId = 0;
   let lastTamuCount = 0;
-  let knownPresensiIds: Set<number> = new Set();
+  const knownPresensiIds: Set<number> = new Set();
 
   try {
     const [rows] = await pool.execute<RowDataPacket[]>(
@@ -74,7 +77,7 @@ export async function GET(
           // ── New presensi rows ──────────────────────────────────────────────
           const [newRows] = await pool.execute<RowDataPacket[]>(
             `SELECT p.id, p.anggota_id, p.waktu_hadir, p.metode, p.catatan, p.foto,
-                    a.nama, a.nip, a.jabatan, a.unit_kerja
+                    a.nama, a.nip, a.jabatan, a.unit_kerja, a.status_keanggotaan
              FROM presensi p
              INNER JOIN anggota a ON a.id = p.anggota_id
              WHERE p.kegiatan_id = ? AND p.id > ?

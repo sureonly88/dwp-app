@@ -2,11 +2,25 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
 import { computeKegiatanStatus } from "@/lib/kegiatanUtils";
-import { ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
+import { buildEffectiveStatusSql, ensureAnggotaSchema } from "@/lib/anggota";
+
+interface AttendanceHighlightRow extends RowDataPacket {
+  anggota_id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  status_keanggotaan: "Istri Karyawan" | "Karyawati" | "Pengurus";
+  kegiatan_id: number;
+  judul: string;
+  tanggal: string;
+  waktu_mulai: string;
+  waktu_hadir: string;
+}
 
 export async function GET() {
   try {
-    await ensureAnggotaTanggalPensiunColumn();
+    await ensureAnggotaSchema();
 
     const today = new Date();
     const year = today.getFullYear();
@@ -17,6 +31,7 @@ export async function GET() {
       .slice(0, 10);
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year}-12-31`;
+    const effectiveStatusSql = buildEffectiveStatusSql();
 
     // Jalankan semua query independen secara paralel untuk meminimalkan latency DB
     const [
@@ -30,15 +45,19 @@ export async function GET() {
       [pensiunList],
       [unitDist],
       [kegiatanHistory],
+      [lebihAwalIstriKaryawan],
+      [lebihAwalKaryawati],
+      [tepatWaktuIstriKaryawan],
+      [tepatWaktuKaryawati],
     ] = await Promise.all([
       // 1. Anggota stats
       pool.execute<RowDataPacket[]>(`
         SELECT
           COUNT(*) AS total,
-          SUM(status = 'Aktif') AS aktif,
-          SUM(status = 'Non-Aktif') AS non_aktif,
+          SUM((${effectiveStatusSql}) = 'Aktif') AS aktif,
+          SUM((${effectiveStatusSql}) = 'Non-Aktif') AS non_aktif,
           SUM(status = 'Cuti') AS cuti,
-          SUM(jabatan <> 'Anggota' AND status = 'Aktif') AS pengurus_aktif
+          SUM(jabatan <> 'Anggota' AND (${effectiveStatusSql}) = 'Aktif') AS pengurus_aktif
         FROM anggota
       `),
       // 2. Unit kerja aktif
@@ -80,7 +99,7 @@ export async function GET() {
       `),
       // 6. 5 anggota terbaru
       pool.execute<RowDataPacket[]>(`
-        SELECT id, nama, nip, jabatan, unit_kerja, status, join_date
+        SELECT id, nama, nip, jabatan, unit_kerja, ${effectiveStatusSql} AS status, join_date
         FROM anggota
         ORDER BY join_date DESC, id DESC
         LIMIT 5
@@ -96,7 +115,7 @@ export async function GET() {
       // 7. Anggota per unit (untuk chart)
       pool.execute<RowDataPacket[]>(`
         SELECT unit_kerja AS unit, COUNT(*) AS total,
-               SUM(status = 'Aktif') AS aktif
+               SUM((${effectiveStatusSql}) = 'Aktif') AS aktif
         FROM anggota
         GROUP BY unit_kerja
         ORDER BY aktif DESC
@@ -116,6 +135,64 @@ export async function GET() {
           AND k.status IN ('Selesai', 'Berlangsung')
         GROUP BY bulan_key, label
         ORDER BY bulan_key ASC
+      `),
+      // 9. Hadir lebih awal - Istri Karyawan (5 terbaru)
+      pool.execute<AttendanceHighlightRow[]>(`
+        SELECT a.id AS anggota_id, a.nama, a.nip, a.jabatan, a.unit_kerja, a.status_keanggotaan,
+               k.id AS kegiatan_id, k.judul, k.tanggal, k.waktu_mulai, p.waktu_hadir
+        FROM presensi p
+        INNER JOIN anggota a ON a.id = p.anggota_id
+        INNER JOIN kegiatan k ON k.id = p.kegiatan_id
+        WHERE a.status_keanggotaan = 'Istri Karyawan'
+          AND k.status = 'Berlangsung'
+          AND k.waktu_mulai IS NOT NULL
+          AND p.waktu_hadir < TIMESTAMP(k.tanggal, k.waktu_mulai)
+        ORDER BY p.waktu_hadir DESC
+        LIMIT 5
+      `),
+      // 10. Hadir lebih awal - Karyawati (5 terbaru)
+      pool.execute<AttendanceHighlightRow[]>(`
+        SELECT a.id AS anggota_id, a.nama, a.nip, a.jabatan, a.unit_kerja, a.status_keanggotaan,
+               k.id AS kegiatan_id, k.judul, k.tanggal, k.waktu_mulai, p.waktu_hadir
+        FROM presensi p
+        INNER JOIN anggota a ON a.id = p.anggota_id
+        INNER JOIN kegiatan k ON k.id = p.kegiatan_id
+        WHERE a.status_keanggotaan = 'Karyawati'
+          AND k.status = 'Berlangsung'
+          AND k.waktu_mulai IS NOT NULL
+          AND p.waktu_hadir < TIMESTAMP(k.tanggal, k.waktu_mulai)
+        ORDER BY p.waktu_hadir DESC
+        LIMIT 5
+      `),
+      // 11. Hadir tepat waktu - Istri Karyawan (mulai s/d 30 menit sesudah mulai)
+      pool.execute<AttendanceHighlightRow[]>(`
+        SELECT a.id AS anggota_id, a.nama, a.nip, a.jabatan, a.unit_kerja, a.status_keanggotaan,
+               k.id AS kegiatan_id, k.judul, k.tanggal, k.waktu_mulai, p.waktu_hadir
+        FROM presensi p
+        INNER JOIN anggota a ON a.id = p.anggota_id
+        INNER JOIN kegiatan k ON k.id = p.kegiatan_id
+        WHERE a.status_keanggotaan = 'Istri Karyawan'
+          AND k.status = 'Berlangsung'
+          AND k.waktu_mulai IS NOT NULL
+          AND p.waktu_hadir >= TIMESTAMP(k.tanggal, k.waktu_mulai)
+          AND p.waktu_hadir <= DATE_ADD(TIMESTAMP(k.tanggal, k.waktu_mulai), INTERVAL 30 MINUTE)
+        ORDER BY p.waktu_hadir DESC
+        LIMIT 5
+      `),
+      // 12. Hadir tepat waktu - Karyawati (mulai s/d 30 menit sesudah mulai)
+      pool.execute<AttendanceHighlightRow[]>(`
+        SELECT a.id AS anggota_id, a.nama, a.nip, a.jabatan, a.unit_kerja, a.status_keanggotaan,
+               k.id AS kegiatan_id, k.judul, k.tanggal, k.waktu_mulai, p.waktu_hadir
+        FROM presensi p
+        INNER JOIN anggota a ON a.id = p.anggota_id
+        INNER JOIN kegiatan k ON k.id = p.kegiatan_id
+        WHERE a.status_keanggotaan = 'Karyawati'
+          AND k.status = 'Berlangsung'
+          AND k.waktu_mulai IS NOT NULL
+          AND p.waktu_hadir >= TIMESTAMP(k.tanggal, k.waktu_mulai)
+          AND p.waktu_hadir <= DATE_ADD(TIMESTAMP(k.tanggal, k.waktu_mulai), INTERVAL 30 MINUTE)
+        ORDER BY p.waktu_hadir DESC
+        LIMIT 5
       `),
     ]);
 
@@ -161,6 +238,16 @@ export async function GET() {
       pensiun_anggota: pensiunList,
       unit_dist: unitDist,
       kegiatan_history: kegiatanHistory,
+      attendance_highlights: {
+        lebih_awal: {
+          istri_karyawan: lebihAwalIstriKaryawan,
+          karyawati: lebihAwalKaryawati,
+        },
+        tepat_waktu: {
+          istri_karyawan: tepatWaktuIstriKaryawan,
+          karyawati: tepatWaktuKaryawati,
+        },
+      },
     });
   } catch (err) {
     console.error("Dashboard API error:", err);

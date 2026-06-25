@@ -8,13 +8,14 @@ WHERE NOT EXISTS (SELECT 1 FROM unit_kerja LIMIT 1);
 
 -- ─── 2. Anggota contoh ────────────────────────────────────────────────────────
 -- Ubah data ini sesuai kebutuhan sebelum deploy pertama.
-INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, join_date)
+INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, status_keanggotaan, join_date)
 SELECT
   'Admin DWP',
   '000000000001',
   'Ketua',
   'Sekretariat',
   'Aktif',
+  'Istri Karyawan',
   CURDATE()
 WHERE NOT EXISTS (SELECT 1 FROM anggota LIMIT 1);
 

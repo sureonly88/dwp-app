@@ -10,6 +10,7 @@ import AnggotaModal, { type AnggotaFormData } from "@/components/keanggotaan/Ang
 import DeleteConfirm from "@/components/keanggotaan/DeleteConfirm";
 import { FetchErrorRow } from "@/components/ui/FetchError";
 import type { SessionUser } from "@/lib/auth-token";
+import type { StatusKeanggotaan } from "@/lib/anggota-options";
 
 interface Anggota {
   id: number;
@@ -18,9 +19,11 @@ interface Anggota {
   jabatan: string;
   unit_kerja: string;
   status: "Aktif" | "Non-Aktif" | "Cuti";
+  status_keanggotaan: StatusKeanggotaan;
   no_hp: string | null;
   email: string | null;
   alamat: string | null;
+  tanggal_lahir: string | null;
   join_date: string;
   tanggal_keluar: string | null;
   tanggal_pensiun: string | null;
@@ -71,6 +74,12 @@ function formatTanggal(dateStr: string | null) {
   return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function statusKeanggotaanVariant(status: StatusKeanggotaan) {
+  if (status === "Karyawati") return "info" as const;
+  if (status === "Pengurus") return "success" as const;
+  return "warning" as const;
+}
+
 export default function KeanggotaanPage() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [data, setData] = useState<Anggota[]>([]);
@@ -79,6 +88,8 @@ export default function KeanggotaanPage() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [totalAktif, setTotalAktif] = useState(0);
+  const [totalAktifIstriKaryawan, setTotalAktifIstriKaryawan] = useState(0);
+  const [totalAktifKaryawati, setTotalAktifKaryawati] = useState(0);
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -103,6 +114,20 @@ export default function KeanggotaanPage() {
       .then((r) => r.json())
       .then((json: { total?: number }) => setTotalAktif(json.total ?? 0))
       .catch(() => setTotalAktif(0));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/anggota?status=Aktif&limit=1000")
+      .then((r) => r.json())
+      .then((json: ApiResponse) => {
+        const rows = json.data ?? [];
+        setTotalAktifIstriKaryawan(rows.filter((item) => item.status_keanggotaan === "Istri Karyawan").length);
+        setTotalAktifKaryawati(rows.filter((item) => item.status_keanggotaan === "Karyawati").length);
+      })
+      .catch(() => {
+        setTotalAktifIstriKaryawan(0);
+        setTotalAktifKaryawati(0);
+      });
   }, []);
 
   const [modal, setModal] = useState<null | "add" | "edit">(null);
@@ -164,9 +189,11 @@ export default function KeanggotaanPage() {
       jabatan: anggota.jabatan,
       unit_kerja: anggota.unit_kerja,
       status: anggota.status,
+      status_keanggotaan: anggota.status_keanggotaan,
       no_hp: anggota.no_hp ?? "",
       email: anggota.email ?? "",
       alamat: anggota.alamat ?? "",
+      tanggal_lahir: anggota.tanggal_lahir ? anggota.tanggal_lahir.split("T")[0] : "",
       join_date: anggota.join_date?.split("T")[0] ?? "",
       tanggal_keluar: anggota.tanggal_keluar ? anggota.tanggal_keluar.split("T")[0] : "",
       tanggal_pensiun: anggota.tanggal_pensiun ? anggota.tanggal_pensiun.split("T")[0] : "",
@@ -225,8 +252,8 @@ export default function KeanggotaanPage() {
   };
 
   const downloadImportTemplate = () => {
-    const header = ["nama", "nip", "jabatan", "unit_kerja", "status", "no_hp", "email", "alamat", "join_date", "tanggal_keluar", "tanggal_pensiun"];
-    const sample = ["Ibu Siti Aminah", "198205122010012001", "Anggota", "Sekretariat", "Aktif", "08123456789", "siti@example.com", "Alamat lengkap", new Date().toISOString().slice(0, 10), "", ""];
+    const header = ["nama", "nip", "jabatan", "unit_kerja", "status", "status_keanggotaan", "no_hp", "email", "alamat", "tanggal_lahir", "join_date", "tanggal_keluar", "tanggal_pensiun"];
+    const sample = ["Ibu Siti Aminah", "198205122010012001", "Anggota", "Sekretariat", "Aktif", "Istri Karyawan", "08123456789", "siti@example.com", "Alamat lengkap", "1985-08-17", new Date().toISOString().slice(0, 10), "", ""];
     const csv = [header, sample].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -313,7 +340,7 @@ export default function KeanggotaanPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
           <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl">
             <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Total Anggota</p>
             <div className="flex items-end justify-between">
@@ -341,6 +368,20 @@ export default function KeanggotaanPage() {
             )}
           </div>
           <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl">
+            <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Aktif Istri Karyawan</p>
+            <div className="flex items-end justify-between gap-4">
+              <h3 className="font-h1 text-[36px] text-secondary leading-tight">{totalAktifIstriKaryawan}</h3>
+            </div>
+            <p className="text-[11px] text-on-surface-variant mt-2">Rekap anggota aktif dengan status keanggotaan Istri Karyawan</p>
+          </div>
+          <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl">
+            <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Aktif Karyawati</p>
+            <div className="flex items-end justify-between gap-4">
+              <h3 className="font-h1 text-[36px] text-tertiary leading-tight">{totalAktifKaryawati}</h3>
+            </div>
+            <p className="text-[11px] text-on-surface-variant mt-2">Rekap anggota aktif dengan status keanggotaan Karyawati</p>
+          </div>
+          <div className="bg-surface-container-lowest border border-outline-variant p-6 rounded-xl">
             <p className="text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Anggota Non-Aktif</p>
             <div className="flex items-end justify-between gap-4">
               <h3 className="font-h1 text-[36px] text-error leading-tight">
@@ -356,7 +397,7 @@ export default function KeanggotaanPage() {
               </div>
             )}
           </div>
-          <div className="col-span-2 lg:col-span-1 flex flex-wrap items-center justify-start lg:justify-end gap-3">
+          <div className="col-span-2 lg:col-span-5 flex flex-wrap lg:flex-nowrap items-stretch justify-start lg:justify-end gap-3">
             {isAdmin && (
               <>
                 <input
@@ -366,19 +407,19 @@ export default function KeanggotaanPage() {
                   className="hidden"
                   onChange={handleImportFile}
                 />
-                <Button variant="outline" icon="upload_file" disabled={importing} onClick={() => importInputRef.current?.click()}>
+                <Button variant="outline" icon="upload_file" disabled={importing} onClick={() => importInputRef.current?.click()} className="min-w-[170px] justify-center">
                   {importing ? "Mengimport..." : "Import Excel"}
                 </Button>
               </>
             )}
-            <Button variant="ghost" icon="description" onClick={downloadImportTemplate}>
+            <Button variant="ghost" icon="description" onClick={downloadImportTemplate} className="min-w-[140px] justify-center">
               Template
             </Button>
-            <Button variant="outline" icon="download" onClick={handleExportData} disabled={loading || total === 0}>
+            <Button variant="outline" icon="download" onClick={handleExportData} disabled={loading || total === 0} className="min-w-[160px] justify-center">
               Ekspor Data
             </Button>
             {isAdmin && (
-              <Button icon="person_add" size="lg" onClick={() => setModal("add")}>
+              <Button icon="person_add" size="lg" onClick={() => setModal("add")} className="min-w-[180px] justify-center">
                 Tambah Anggota
               </Button>
             )}
@@ -459,7 +500,7 @@ export default function KeanggotaanPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface-container-low">
-                  {["Nama Anggota", "NIP/ID", "Jabatan", "Unit Kerja", "Tanggal Pensiun", "Kontak", "Status", "Aksi"].filter((h) => isAdmin || h !== "Aksi").map((h) => (
+                  {["Nama Anggota", "NIP/ID", "Jabatan", "Unit Kerja", "Tanggal Lahir", "Status Keanggotaan", "Tanggal Pensiun", "Kontak", "Status", "Aksi"].filter((h) => isAdmin || h !== "Aksi").map((h) => (
                     <th key={h} className="px-6 py-4 font-label-md text-label-md text-on-surface-variant border-b border-outline-variant whitespace-nowrap">
                       {h}
                     </th>
@@ -470,7 +511,7 @@ export default function KeanggotaanPage() {
                 {loading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      {Array.from({ length: 8 }).map((_, j) => (
+                      {Array.from({ length: 10 }).map((_, j) => (
                         <td key={j} className="px-6 py-4">
                           <div className="h-4 bg-surface-container-high rounded w-3/4" />
                         </td>
@@ -478,10 +519,10 @@ export default function KeanggotaanPage() {
                     </tr>
                   ))
                 ) : fetchError ? (
-                  <FetchErrorRow colSpan={8} message="Gagal memuat data anggota. Periksa koneksi dan coba lagi." onRetry={fetchData} />
+                    <FetchErrorRow colSpan={10} message="Gagal memuat data anggota. Periksa koneksi dan coba lagi." onRetry={fetchData} />
                 ) : data.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-16 text-center text-on-surface-variant text-body-sm">
+                      <td colSpan={10} className="px-6 py-16 text-center text-on-surface-variant text-body-sm">
                       <span className="material-symbols-outlined text-[48px] block mb-3 opacity-30">person_search</span>
                       Tidak ada data anggota yang sesuai filter.
                     </td>
@@ -503,6 +544,13 @@ export default function KeanggotaanPage() {
                       <td className="px-6 py-4 font-mono text-body-sm text-on-surface-variant whitespace-nowrap">{anggota.nip}</td>
                       <td className="px-6 py-4 text-body-sm text-on-surface">{anggota.jabatan}</td>
                       <td className="px-6 py-4 text-body-sm text-on-surface">{anggota.unit_kerja}</td>
+                      <td className="px-6 py-4 text-body-sm text-on-surface-variant whitespace-nowrap">{formatTanggal(anggota.tanggal_lahir)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Badge
+                          label={anggota.status_keanggotaan}
+                          variant={statusKeanggotaanVariant(anggota.status_keanggotaan)}
+                        />
+                      </td>
                       <td className="px-6 py-4 text-body-sm text-on-surface-variant whitespace-nowrap">{formatTanggal(anggota.tanggal_pensiun)}</td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-0.5">

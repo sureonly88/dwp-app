@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
+import { buildEffectiveStatusSql } from "@/lib/anggota";
 
 // POST /api/arisan/[kegiatan_id]/winner — input manual penerima arisan
 export async function POST(
@@ -27,8 +28,9 @@ export async function POST(
       return NextResponse.json({ error: "Kegiatan tidak ditemukan" }, { status: 404 });
     }
 
+    const effectiveStatusSql = buildEffectiveStatusSql();
     const [anggotaRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, nama, nip, jabatan, unit_kerja, status FROM anggota WHERE id = ?`,
+      `SELECT id, nama, nip, jabatan, unit_kerja, ${effectiveStatusSql} AS status FROM anggota WHERE id = ?`,
       [anggotaId],
     );
     if (anggotaRows.length === 0) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
+import { buildCurrentActiveCondition } from "@/lib/anggota";
 
 // POST /api/arisan/[kegiatan_id]/undi — undi 1 pemenang acak (yang belum pernah menang di kegiatan ini)
 export async function POST(req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
       `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja
        FROM anggota a
        INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-       WHERE a.status = 'Aktif'
+       WHERE ${buildCurrentActiveCondition("a")}
          AND a.id NOT IN (
            SELECT anggota_id FROM arisan_winners WHERE kegiatan_id = ?
          )

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
+import { buildEffectiveStatusSql } from "@/lib/anggota";
 
 // GET /api/presensi/[code]/anggota?search=
 // Public-safe search used by the check-in page. Returns minimal anggota info.
@@ -24,13 +25,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
 
     const kegiatanId = (keg[0] as { id: number }).id;
     const like = `%${search}%`;
+    const effectiveStatusSql = buildEffectiveStatusSql("a");
 
     // Return anggota with attendance flag for this kegiatan
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja,
               EXISTS(SELECT 1 FROM presensi p WHERE p.kegiatan_id = ? AND p.anggota_id = a.id) AS sudah_hadir
        FROM anggota a
-       WHERE a.status <> 'Non-Aktif' AND (a.nama LIKE ? OR a.nip LIKE ?)
+       WHERE ${effectiveStatusSql} <> 'Non-Aktif' AND (a.nama LIKE ? OR a.nip LIKE ?)
        ORDER BY a.nama ASC
        LIMIT 10`,
       [kegiatanId, like, like]

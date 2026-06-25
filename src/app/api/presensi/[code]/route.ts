@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { buildEffectiveStatusSql } from "@/lib/anggota";
 
 // GET /api/presensi/[code] -> info kegiatan
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ code: string }> }) {
@@ -58,10 +59,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
       return NextResponse.json({ error: "Presensi untuk kegiatan ini sudah ditutup" }, { status: 400 });
     }
 
+    const effectiveStatusSql = buildEffectiveStatusSql();
     const [a] = await pool.execute<RowDataPacket[]>(
       anggotaId
-        ? "SELECT id, nama, jabatan, unit_kerja, status FROM anggota WHERE id = ? LIMIT 1"
-        : "SELECT id, nama, jabatan, unit_kerja, status FROM anggota WHERE nip = ? LIMIT 1",
+        ? `SELECT id, nama, jabatan, unit_kerja, ${effectiveStatusSql} AS status FROM anggota WHERE id = ? LIMIT 1`
+        : `SELECT id, nama, jabatan, unit_kerja, ${effectiveStatusSql} AS status FROM anggota WHERE nip = ? LIMIT 1`,
       [anggotaId ?? nip]
     );
     if (a.length === 0) {

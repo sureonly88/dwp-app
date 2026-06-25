@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
-import { buildAnggotaWhereClause, ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
+import { buildAnggotaWhereClause, buildEffectiveStatusSql, ensureAnggotaSchema } from "@/lib/anggota";
 
 interface AnggotaExportRow extends RowDataPacket {
   nama: string;
@@ -9,9 +9,11 @@ interface AnggotaExportRow extends RowDataPacket {
   jabatan: string;
   unit_kerja: string;
   status: string;
+  status_keanggotaan: string;
   no_hp: string | null;
   email: string | null;
   alamat: string | null;
+  tanggal_lahir: string | null;
   join_date: string;
   tanggal_keluar: string | null;
   tanggal_pensiun: string | null;
@@ -33,7 +35,7 @@ function formatDate(value: string | null) {
 // GET /api/anggota/export?search=&status=&unit=&jenis=
 export async function GET(req: NextRequest) {
   try {
-    await ensureAnggotaTanggalPensiunColumn();
+    await ensureAnggotaSchema();
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") ?? "";
@@ -42,9 +44,10 @@ export async function GET(req: NextRequest) {
     const jenis = searchParams.get("jenis") ?? "";
 
     const { where, params } = buildAnggotaWhereClause({ search, status, unit, jenis });
+    const effectiveStatusSql = buildEffectiveStatusSql();
 
     const [rows] = await pool.execute<AnggotaExportRow[]>(
-      `SELECT nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar, tanggal_pensiun
+      `SELECT nama, nip, jabatan, unit_kerja, ${effectiveStatusSql} AS status, status_keanggotaan, no_hp, email, alamat, tanggal_lahir, join_date, tanggal_keluar, tanggal_pensiun
        FROM anggota ${where}
        ORDER BY created_at DESC`,
       params
@@ -57,9 +60,11 @@ export async function GET(req: NextRequest) {
       "Jabatan",
       "Unit Kerja",
       "Status",
+      "Status Keanggotaan",
       "No HP",
       "Email",
       "Alamat",
+      "Tanggal Lahir",
       "Tanggal Gabung",
       "Tanggal Keluar",
       "Tanggal Pensiun",
@@ -75,9 +80,11 @@ export async function GET(req: NextRequest) {
           csvCell(row.jabatan),
           csvCell(row.unit_kerja),
           csvCell(row.status),
+          csvCell(row.status_keanggotaan),
           csvCell(row.no_hp),
           csvCell(row.email),
           csvCell(row.alamat),
+          csvCell(formatDate(row.tanggal_lahir)),
           csvCell(formatDate(row.join_date)),
           csvCell(formatDate(row.tanggal_keluar)),
           csvCell(formatDate(row.tanggal_pensiun)),

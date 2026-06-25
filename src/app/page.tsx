@@ -67,6 +67,20 @@ interface KegiatanHistory {
   total_hadir: number;
 }
 
+interface AttendanceHighlightItem {
+  anggota_id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  status_keanggotaan: "Istri Karyawan" | "Karyawati" | "Pengurus";
+  kegiatan_id: number;
+  judul: string;
+  tanggal: string;
+  waktu_mulai: string;
+  waktu_hadir: string;
+}
+
 interface DashboardData {
   stats: DashboardStats;
   upcoming: UpcomingItem[];
@@ -74,6 +88,16 @@ interface DashboardData {
   pensiun_anggota: PensiunAnggota[];
   unit_dist: UnitDist[];
   kegiatan_history: KegiatanHistory[];
+  attendance_highlights: {
+    lebih_awal: {
+      istri_karyawan: AttendanceHighlightItem[];
+      karyawati: AttendanceHighlightItem[];
+    };
+    tepat_waktu: {
+      istri_karyawan: AttendanceHighlightItem[];
+      karyawati: AttendanceHighlightItem[];
+    };
+  };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -82,6 +106,9 @@ const formatRp = (n: number) =>
 
 const formatTanggal = (s: string) =>
   new Date(s).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+
+const formatWaktu = (s: string) =>
+  new Date(s).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 
 const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 const BULAN_FULL = [
@@ -100,6 +127,44 @@ function statusAnggotaBadge(s: string) {
   if (s === "Aktif") return <Badge label="Aktif" variant="success" />;
   if (s === "Cuti") return <Badge label="Cuti" variant="warning" />;
   return <Badge label="Non-Aktif" variant="error" />;
+}
+
+function AttendanceStatusSection({
+  title,
+  items,
+}: {
+  title: string;
+  items: AttendanceHighlightItem[];
+}) {
+  return (
+    <div className="bg-surface-container-low rounded-xl p-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h3 className="text-label-md font-semibold text-on-surface">{title}</h3>
+        <Badge label={`${items.length} orang`} variant="info" />
+      </div>
+      {items.length === 0 ? (
+        <p className="text-body-sm text-on-surface-variant">Belum ada data kehadiran yang sesuai.</p>
+      ) : (
+        <div className="flex flex-col divide-y divide-outline-variant/50">
+          {items.map((item) => (
+            <div key={`${title}-${item.kegiatan_id}-${item.anggota_id}-${item.waktu_hadir}`} className="py-3 first:pt-0 last:pb-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-body-sm font-semibold text-on-surface truncate">{item.nama}</p>
+                  <p className="text-[11px] text-on-surface-variant truncate">{item.jabatan} · {item.unit_kerja}</p>
+                  <p className="text-[11px] text-on-surface-variant truncate mt-1">{item.judul}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-body-sm font-medium text-on-surface">{formatWaktu(item.waktu_hadir)}</p>
+                  <p className="text-[11px] text-on-surface-variant">{formatTanggal(item.tanggal)}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Stat Card ───────────────────────────────────────────────────────────────
@@ -329,6 +394,34 @@ export default function DashboardPage() {
                   </div>
                 );
               })}
+            </div>
+          </section>
+        )}
+
+        {!loading && data?.attendance_highlights && (
+          <section>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <Card>
+                <div className="p-5 border-b border-outline-variant">
+                  <h2 className="font-h3 text-h3 text-on-surface">Anggota Hadir Lebih Awal</h2>
+                  <p className="text-body-sm text-on-surface-variant mt-0.5">Hadir sebelum waktu mulai pada kegiatan yang sedang berlangsung, masing-masing 5 orang terbaru</p>
+                </div>
+                <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <AttendanceStatusSection title="Istri Karyawan" items={data.attendance_highlights.lebih_awal.istri_karyawan} />
+                  <AttendanceStatusSection title="Karyawati" items={data.attendance_highlights.lebih_awal.karyawati} />
+                </div>
+              </Card>
+
+              <Card>
+                <div className="p-5 border-b border-outline-variant">
+                  <h2 className="font-h3 text-h3 text-on-surface">Anggota Hadir Tepat Waktu</h2>
+                  <p className="text-body-sm text-on-surface-variant mt-0.5">Hadir dari waktu mulai sampai 30 menit sesudahnya pada kegiatan yang sedang berlangsung, masing-masing 5 orang terbaru</p>
+                </div>
+                <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <AttendanceStatusSection title="Istri Karyawan" items={data.attendance_highlights.tepat_waktu.istri_karyawan} />
+                  <AttendanceStatusSection title="Karyawati" items={data.attendance_highlights.tepat_waktu.karyawati} />
+                </div>
+              </Card>
             </div>
           </section>
         )}

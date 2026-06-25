@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
+import { buildCurrentActiveCondition, buildEffectiveStatusSql, ensureAnggotaSchema } from "@/lib/anggota";
 
 interface PresensiRow extends RowDataPacket {
   id: number;
@@ -15,11 +16,14 @@ interface PresensiRow extends RowDataPacket {
   nip: string;
   jabatan: string;
   unit_kerja: string;
+  status_keanggotaan: "Istri Karyawan" | "Karyawati" | "Pengurus";
 }
 
 // GET /api/kegiatan/[id]/presensi?search=
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await ensureAnggotaSchema();
+
     const { id } = await params;
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") ?? "";
@@ -33,7 +37,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const [rows] = await pool.execute<PresensiRow[]>(
       `SELECT p.id, p.kegiatan_id, p.anggota_id, p.waktu_hadir, p.metode, p.catatan, p.foto,
-              a.nama, a.nip, a.jabatan, a.unit_kerja
+              a.nama, a.nip, a.jabatan, a.unit_kerja, a.status_keanggotaan
        FROM presensi p
        INNER JOIN anggota a ON a.id = p.anggota_id
        WHERE ${conditions.join(" AND ")}
@@ -80,9 +84,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Resolve anggota
     let resolvedId: number | null = anggota_id ?? null;
     let nama = "";
+    const effectiveStatusSql = buildEffectiveStatusSql();
     if (!resolvedId) {
       const [a] = await pool.execute<RowDataPacket[]>(
-        "SELECT id, nama, status FROM anggota WHERE nip = ? LIMIT 1",
+        `SELECT id, nama, ${effectiveStatusSql} AS status FROM anggota WHERE nip = ? LIMIT 1`,
         [nip]
       );
       if (a.length === 0) {
@@ -95,7 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       nama = (a[0] as { nama: string }).nama;
     } else {
       const [a] = await pool.execute<RowDataPacket[]>(
-        "SELECT nama, status FROM anggota WHERE id = ? LIMIT 1",
+        `SELECT nama, ${effectiveStatusSql} AS status FROM anggota WHERE id = ? LIMIT 1`,
         [resolvedId]
       );
       if (a.length === 0) {
@@ -156,7 +161,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       `INSERT IGNORE INTO presensi (kegiatan_id, anggota_id, metode)
        SELECT ?, id, 'Manual'
        FROM anggota
-       WHERE status = 'Aktif'`,
+       WHERE ${buildCurrentActiveCondition()}`,
       [id]
     );
 

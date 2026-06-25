@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { STATUS_KEANGGOTAAN_OPTIONS, type StatusKeanggotaan } from "@/lib/anggota-options";
 
 interface UnitKerjaOption {
   id: number;
@@ -14,9 +15,11 @@ export interface AnggotaFormData {
   jabatan: string;
   unit_kerja: string;
   status: string;
+  status_keanggotaan: StatusKeanggotaan;
   no_hp: string;
   email: string;
   alamat: string;
+  tanggal_lahir: string;
   join_date: string;
   tanggal_keluar: string;
   tanggal_pensiun: string;
@@ -47,9 +50,11 @@ const EMPTY_FORM: AnggotaFormData = {
   jabatan: "Anggota",
   unit_kerja: "Sekretariat",
   status: "Aktif",
+  status_keanggotaan: "Istri Karyawan",
   no_hp: "",
   email: "",
   alamat: "",
+  tanggal_lahir: "",
   join_date: new Date().toISOString().split("T")[0],
   tanggal_keluar: "",
   tanggal_pensiun: "",
@@ -64,9 +69,11 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
           jabatan: initialData.jabatan,
           unit_kerja: initialData.unit_kerja,
           status: initialData.status,
+          status_keanggotaan: initialData.status_keanggotaan ?? EMPTY_FORM.status_keanggotaan,
           no_hp: initialData.no_hp ?? "",
           email: initialData.email ?? "",
           alamat: initialData.alamat ?? "",
+          tanggal_lahir: initialData.tanggal_lahir ? initialData.tanggal_lahir.split("T")[0] : "",
           join_date: initialData.join_date?.split("T")[0] ?? EMPTY_FORM.join_date,
           tanggal_keluar: initialData.tanggal_keluar ? initialData.tanggal_keluar.split("T")[0] : "",
           tanggal_pensiun: initialData.tanggal_pensiun ? initialData.tanggal_pensiun.split("T")[0] : "",
@@ -97,7 +104,7 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
     setForm((prev) => {
       const next = { ...prev, [name]: value };
       if (name === "tanggal_keluar" && value) {
-        next.status = "Non-Aktif";
+        next.status = value <= new Date().toISOString().split("T")[0] ? "Non-Aktif" : "Aktif";
       }
       return next;
     });
@@ -120,6 +127,7 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          tanggal_lahir: form.tanggal_lahir ? form.tanggal_lahir : null,
           tanggal_keluar: form.tanggal_keluar ? form.tanggal_keluar : null,
           tanggal_pensiun: form.tanggal_pensiun ? form.tanggal_pensiun : null,
         }),
@@ -234,7 +242,7 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
               </div>
             </div>
 
-            {/* Status & Join Date */}
+            {/* Status Keaktifan & Status Keanggotaan */}
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-label-md text-label-md text-on-surface font-semibold">Status</label>
@@ -249,8 +257,33 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
                   {STATUS_OPTIONS.map((s) => <option key={s}>{s}</option>)}
                 </select>
                 {form.tanggal_keluar && (
-                  <p className="text-[11px] text-on-surface-variant">Status otomatis menjadi Non-Aktif saat tanggal keluar diisi.</p>
+                  <p className="text-[11px] text-on-surface-variant">Status otomatis menjadi Non-Aktif mulai tanggal keluar dan sesudahnya.</p>
                 )}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md text-label-md text-on-surface font-semibold">Status Keanggotaan</label>
+                <select
+                  name="status_keanggotaan"
+                  value={form.status_keanggotaan}
+                  onChange={handleChange}
+                  style={{ paddingTop: '10px', paddingBottom: '10px' }}
+                  className="appearance-none border border-outline-variant rounded-lg px-4 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                >
+                  {STATUS_KEANGGOTAAN_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-label-md text-label-md text-on-surface font-semibold">Tanggal Lahir</label>
+                <input
+                  type="date"
+                  name="tanggal_lahir"
+                  value={form.tanggal_lahir}
+                  onChange={handleChange}
+                  className="border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-label-md text-label-md text-on-surface font-semibold">Tanggal Bergabung</label>

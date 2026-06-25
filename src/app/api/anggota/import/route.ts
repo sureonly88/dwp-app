@@ -3,7 +3,11 @@ import pool from "@/lib/db";
 import type { ResultSetHeader } from "mysql2";
 import * as XLSX from "xlsx";
 import { requireAdmin } from "@/lib/admin-auth";
-import { ensureAnggotaTanggalPensiunColumn } from "@/lib/anggota";
+import {
+  ensureAnggotaSchema,
+  STATUS_KEANGGOTAAN_OPTIONS,
+  type StatusKeanggotaan,
+} from "@/lib/anggota";
 
 type AnggotaStatus = "Aktif" | "Non-Aktif" | "Cuti";
 
@@ -13,9 +17,11 @@ interface ImportRow {
   jabatan: string;
   unit_kerja: string;
   status: AnggotaStatus;
+  status_keanggotaan: StatusKeanggotaan;
   no_hp: string | null;
   email: string | null;
   alamat: string | null;
+  tanggal_lahir: string | null;
   join_date: string;
   tanggal_keluar: string | null;
   tanggal_pensiun: string | null;
@@ -41,6 +47,9 @@ const COLUMN_ALIASES: Record<string, keyof ImportRow> = {
   "unit kerja": "unit_kerja",
   unit_kerja: "unit_kerja",
   status: "status",
+  status_keanggotaan: "status_keanggotaan",
+  "status keanggotaan": "status_keanggotaan",
+  kategori_keanggotaan: "status_keanggotaan",
   "no hp": "no_hp",
   "no. hp": "no_hp",
   no_hp: "no_hp",
@@ -48,6 +57,8 @@ const COLUMN_ALIASES: Record<string, keyof ImportRow> = {
   telepon: "no_hp",
   email: "email",
   alamat: "alamat",
+  "tanggal lahir": "tanggal_lahir",
+  tanggal_lahir: "tanggal_lahir",
   "tanggal bergabung": "join_date",
   join_date: "join_date",
   "join date": "join_date",
@@ -104,13 +115,22 @@ function normalizeStatus(value: unknown): AnggotaStatus | null {
   return null;
 }
 
+function normalizeStatusKeanggotaan(value: unknown): StatusKeanggotaan | null {
+  const raw = cellToString(value).toLowerCase();
+  if (!raw) return "Istri Karyawan";
+  if (["istri karyawan", "istri_karyawan", "istri-karyawan"].includes(raw)) return "Istri Karyawan";
+  if (["karyawati"].includes(raw)) return "Karyawati";
+  if (["pengurus"].includes(raw)) return "Pengurus";
+  return null;
+}
+
 function isBlankRow(row: unknown[]) {
   return row.every((cell) => cell === null || cell === undefined || String(cell).trim() === "");
 }
 
 export async function POST(req: NextRequest) {
   try {
-    await ensureAnggotaTanggalPensiunColumn();
+    await ensureAnggotaSchema();
 
     const { response } = await requireAdmin(req);
     if (response) return response;
@@ -170,6 +190,8 @@ export async function POST(req: NextRequest) {
       const jabatan = cellToString(record.jabatan);
       const unitKerja = cellToString(record.unit_kerja);
       const status = normalizeStatus(record.status);
+      const statusKeanggotaan = normalizeStatusKeanggotaan(record.status_keanggotaan);
+      const tanggalLahir = normalizeDate(record.tanggal_lahir);
       const joinDate = normalizeDate(record.join_date) ?? new Date().toISOString().slice(0, 10);
       const tanggalKeluar = normalizeDate(record.tanggal_keluar);
       const tanggalPensiun = normalizeDate(record.tanggal_pensiun);
@@ -190,6 +212,10 @@ export async function POST(req: NextRequest) {
         errors.push({ row: excelRowNumber, message: "Status harus Aktif, Non-Aktif, atau Cuti" });
         return;
       }
+      if (!statusKeanggotaan || !STATUS_KEANGGOTAAN_OPTIONS.includes(statusKeanggotaan)) {
+        errors.push({ row: excelRowNumber, message: "Status keanggotaan harus Istri Karyawan, Karyawati, atau Pengurus" });
+        return;
+      }
 
       seenNip.add(nip);
       const normalizedFinalStatus = tanggalKeluar ? "Non-Aktif" : status;
@@ -199,9 +225,11 @@ export async function POST(req: NextRequest) {
         jabatan,
         unit_kerja: unitKerja,
         status: normalizedFinalStatus,
+        status_keanggotaan: statusKeanggotaan,
         no_hp: cellToString(record.no_hp) || null,
         email: cellToString(record.email) || null,
         alamat: cellToString(record.alamat) || null,
+        tanggal_lahir: tanggalLahir,
         join_date: joinDate,
         tanggal_keluar: tanggalKeluar,
         tanggal_pensiun: tanggalPensiun,
@@ -217,16 +245,18 @@ export async function POST(req: NextRequest) {
 
     for (const row of validRows) {
       const [result] = await pool.execute<ResultSetHeader>(
-        `INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, no_hp, email, alamat, join_date, tanggal_keluar, tanggal_pensiun)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO anggota (nama, nip, jabatan, unit_kerja, status, status_keanggotaan, no_hp, email, alamat, tanggal_lahir, join_date, tanggal_keluar, tanggal_pensiun)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            nama = VALUES(nama),
            jabatan = VALUES(jabatan),
            unit_kerja = VALUES(unit_kerja),
            status = VALUES(status),
+           status_keanggotaan = VALUES(status_keanggotaan),
            no_hp = VALUES(no_hp),
            email = VALUES(email),
            alamat = VALUES(alamat),
+           tanggal_lahir = VALUES(tanggal_lahir),
            join_date = VALUES(join_date),
            tanggal_keluar = VALUES(tanggal_keluar),
            tanggal_pensiun = VALUES(tanggal_pensiun)`,
@@ -236,9 +266,11 @@ export async function POST(req: NextRequest) {
           row.jabatan,
           row.unit_kerja,
           row.status,
+          row.status_keanggotaan,
           row.no_hp,
           row.email,
           row.alamat,
+          row.tanggal_lahir,
           row.join_date,
           row.tanggal_keluar,
           row.tanggal_pensiun,
