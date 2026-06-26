@@ -22,8 +22,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
       [kegiatan_id]
     );
 
-    const [winners] = await pool.execute<RowDataPacket[]>(
-      `SELECT w.id, h.urutan, w.peserta_tipe,
+    const [winnerRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT w.id, h.id AS hadiah_id, h.nama_hadiah, h.urutan, w.peserta_tipe,
               COALESCE(a.nama, pt.nama) AS nama,
               a.nip,
               CASE
@@ -34,6 +34,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
                 WHEN w.peserta_tipe = 'tamu' THEN COALESCE(NULLIF(TRIM(pt.instansi), ''), 'Tamu Non-Anggota')
                 ELSE a.unit_kerja
               END AS unit_kerja,
+              CASE
+                WHEN w.peserta_tipe = 'tamu' THEN CASE
+                  WHEN pt.foto IS NOT NULL AND TRIM(pt.foto) <> '' THEN pt.foto
+                  ELSE NULL
+                END
+                ELSE (
+                  SELECT p.foto
+                  FROM presensi p
+                  WHERE p.kegiatan_id = w.kegiatan_id
+                    AND p.anggota_id = w.anggota_id
+                    AND p.foto IS NOT NULL
+                    AND TRIM(p.foto) <> ''
+                  ORDER BY p.waktu_hadir DESC, p.id DESC
+                  LIMIT 1
+                )
+              END AS foto,
               pt.instansi,
               w.waktu,
               w.anggota_id,
@@ -46,6 +62,30 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
        ORDER BY h.urutan ASC`,
       [kegiatan_id]
     );
+
+    const winners = winnerRows.map((winner, index) => ({
+      ...winner,
+      urutan: index + 1,
+    }));
+
+    const hadiahToNormalize = winnerRows.filter((winner, index) => Number(winner.urutan) !== index + 1);
+    if (hadiahToNormalize.length > 0) {
+      await Promise.all(
+        winnerRows.map((winner, index) => {
+          const urutanBaru = index + 1;
+          return pool.execute<ResultSetHeader>(
+            `UPDATE doorprize_hadiah
+             SET urutan = ?,
+                 nama_hadiah = CASE
+                   WHEN nama_hadiah REGEXP '^Hadiah ke-[0-9]+$' THEN ?
+                   ELSE nama_hadiah
+                 END
+             WHERE id = ?`,
+            [urutanBaru, `Hadiah ke-${urutanBaru}`, winner.hadiah_id]
+          );
+        })
+      );
+    }
 
     const [hadirCount, eligibleCandidates, rollNames] = await Promise.all([
       countDoorprizePresentParticipants(kegiatan_id),

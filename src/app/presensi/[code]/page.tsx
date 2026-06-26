@@ -34,6 +34,78 @@ function getInitials(nama: string) {
   return nama.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 }
 
+interface CameraErrorState {
+  title: string;
+  message: string;
+  hint?: string;
+}
+
+interface CameraEnvironmentState {
+  isSecureContext: boolean;
+  isInAppBrowser: boolean;
+  hasCameraApi: boolean;
+}
+
+function resolveCameraError(err: unknown): CameraErrorState {
+  const error = err as { name?: string; message?: string };
+  const name = error?.name ?? "";
+  const message = error?.message ?? "";
+
+  if (name === "NotAllowedError" || name === "SecurityError" || message.includes("Permission") || message.includes("NotAllowed")) {
+    return {
+      title: "Izin kamera ditolak",
+      message: "Browser belum diizinkan untuk mengakses kamera selfie.",
+      hint: "Izinkan kamera pada browser, lalu coba lagi. Jika link dibuka dari WhatsApp/Instagram, buka di Chrome atau Safari.",
+    };
+  }
+
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return {
+      title: "Kamera sedang dipakai aplikasi lain",
+      message: "Browser tidak bisa membuka kamera karena sedang digunakan oleh aplikasi lain.",
+      hint: "Tutup aplikasi kamera, WhatsApp call, Zoom, atau Meet, lalu coba lagi.",
+    };
+  }
+
+  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+    return {
+      title: "Mode kamera tidak cocok",
+      message: "Perangkat tidak cocok dengan pengaturan kamera depan yang diminta.",
+      hint: "Tekan “Coba Lagi Kamera”. Sistem akan mencoba mode kamera yang lebih umum.",
+    };
+  }
+
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return {
+      title: "Kamera tidak ditemukan",
+      message: "Perangkat ini tidak menemukan kamera yang bisa dipakai browser.",
+      hint: "Pastikan perangkat memiliki kamera dan kamera tidak dinonaktifkan.",
+    };
+  }
+
+  if (name === "AbortError") {
+    return {
+      title: "Pembukaan kamera terhenti",
+      message: "Browser membatalkan proses membuka kamera sebelum selesai.",
+      hint: "Coba lagi beberapa detik lagi atau tutup tab lain yang memakai kamera.",
+    };
+  }
+
+  if (name === "TypeError") {
+    return {
+      title: "Akses kamera tidak didukung pada konteks ini",
+      message: "Kamera browser biasanya hanya aktif di HTTPS, localhost, atau browser yang mendukung getUserMedia.",
+      hint: "Gunakan link HTTPS resmi dan buka dari Chrome/Safari, bukan dari browser internal aplikasi chat.",
+    };
+  }
+
+  return {
+    title: "Kamera belum bisa dibuka",
+    message: "Browser tidak berhasil mengakses kamera untuk selfie.",
+    hint: "Coba lagi, pastikan link dibuka di Chrome/Safari, dan beri izin kamera pada browser.",
+  };
+}
+
 export default function PresensiPublicPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
 
@@ -58,7 +130,23 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [photoData, setPhotoData] = useState<string | null>(null);
-  const [cameraErr, setCameraErr] = useState<string | null>(null);
+  const [cameraErr, setCameraErr] = useState<CameraErrorState | null>(null);
+  const [cameraEnv] = useState<CameraEnvironmentState>(() => {
+    if (typeof window === "undefined" || typeof navigator === "undefined") {
+      return {
+        isSecureContext: true,
+        isInAppBrowser: false,
+        hasCameraApi: true,
+      };
+    }
+
+    const ua = navigator.userAgent || "";
+    return {
+      isSecureContext: window.isSecureContext,
+      isInAppBrowser: /(FBAN|FBAV|Instagram|Line|WhatsApp|wv)/i.test(ua),
+      hasCameraApi: typeof navigator.mediaDevices?.getUserMedia === "function",
+    };
+  });
 
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<
@@ -84,12 +172,14 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
   }, [code]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat data kegiatan publik saat halaman presensi dibuka.
     refreshKegiatan().finally(() => setLoading(false));
   }, [refreshKegiatan]);
 
   // Live search debounced
   useEffect(() => {
     if (!query.trim() || query.trim().length < 2) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Mengosongkan hasil pencarian saat input belum memenuhi batas minimal.
       setSuggest([]);
       return;
     }
@@ -121,27 +211,66 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
 
   const startCamera = useCallback(async () => {
     setCameraErr(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 720 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-    } catch (e: unknown) {
-      const msg = (e as { message?: string })?.message ?? "Tidak dapat mengakses kamera";
-      setCameraErr(msg.includes("Permission") || msg.includes("NotAllowed")
-        ? "Izin kamera ditolak. Buka pengaturan browser dan izinkan akses kamera."
-        : "Kamera tidak tersedia di perangkat ini.");
+
+    if (typeof window === "undefined" || typeof navigator === "undefined") {
+      setCameraErr(resolveCameraError(new TypeError("Browser API not available")));
+      return;
     }
-  }, []);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraErr(resolveCameraError(new TypeError("getUserMedia not supported")));
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setCameraErr(resolveCameraError(new TypeError("Insecure context")));
+      return;
+    }
+
+    stopCamera();
+
+    const constraintOptions: MediaStreamConstraints[] = [
+      {
+        video: { facingMode: { ideal: "user" }, width: { ideal: 720 }, height: { ideal: 720 } },
+        audio: false,
+      },
+      {
+        video: { width: { ideal: 720 }, height: { ideal: 720 } },
+        audio: false,
+      },
+      { video: true, audio: false },
+    ];
+
+    let lastError: unknown = null;
+
+    try {
+      for (const constraints of constraintOptions) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          streamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            await videoRef.current.play();
+          }
+          return;
+        } catch (err: unknown) {
+          lastError = err;
+          const errorName = (err as { name?: string })?.name ?? "";
+          if (errorName === "NotAllowedError" || errorName === "SecurityError") {
+            break;
+          }
+        }
+      }
+      setCameraErr(resolveCameraError(lastError));
+    } catch (err: unknown) {
+      setCameraErr(resolveCameraError(err));
+    }
+  }, [stopCamera]);
 
   // Auto start camera when entering selfie step
   useEffect(() => {
     if (step === "selfie" && !photoData) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Membuka kamera saat user masuk ke langkah selfie.
       startCamera();
     }
     return () => {
@@ -502,6 +631,23 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
               </label>
             </div>
 
+            {(!cameraEnv.isSecureContext || cameraEnv.isInAppBrowser || !cameraEnv.hasCameraApi) && (
+              <div className="mb-3 rounded-xl border border-secondary/20 bg-secondary-container/35 px-4 py-3 text-left text-secondary">
+                <p className="font-label-md text-label-md">Tips bila kamera tidak muncul</p>
+                <ul className="mt-1 list-disc pl-5 text-[12px] space-y-1">
+                  {!cameraEnv.isSecureContext && (
+                    <li>Buka halaman presensi dari link HTTPS resmi. Kamera browser sering gagal di koneksi yang tidak aman.</li>
+                  )}
+                  {cameraEnv.isInAppBrowser && (
+                    <li>Link tampaknya dibuka dari browser internal aplikasi. Lebih aman buka ulang di Chrome atau Safari.</li>
+                  )}
+                  {!cameraEnv.hasCameraApi && (
+                    <li>Browser ini tidak mendukung akses kamera dengan baik. Gunakan browser yang lebih baru.</li>
+                  )}
+                </ul>
+              </div>
+            )}
+
             {presType === "anggota" && selected ? (
               <div className="bg-primary-fixed/30 border border-primary-fixed-dim rounded-xl p-3 mb-3 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center font-bold text-xs flex-shrink-0">
@@ -543,7 +689,11 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
               ) : cameraErr ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-4 text-center">
                   <span className="material-symbols-outlined text-[48px] mb-2">videocam_off</span>
-                  <p className="text-body-sm">{cameraErr}</p>
+                  <p className="font-label-md text-label-md">{cameraErr.title}</p>
+                  <p className="text-body-sm mt-1">{cameraErr.message}</p>
+                  {cameraErr.hint && (
+                    <p className="text-[11px] mt-2 opacity-85 max-w-xs">{cameraErr.hint}</p>
+                  )}
                 </div>
               ) : (
                 <>
@@ -586,6 +736,15 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                   <span className="material-symbols-outlined text-[22px]">photo_camera</span>
                   Ambil Foto
                 </button>
+                {cameraErr && (
+                  <button
+                    onClick={startCamera}
+                    type="button"
+                    className="px-4 py-3 rounded-xl border border-secondary/40 text-secondary hover:bg-secondary-container/30 transition-colors text-label-sm"
+                  >
+                    Coba Lagi Kamera
+                  </button>
+                )}
                 <button
                   onClick={handleSubmit}
                   disabled={submitting}
@@ -655,6 +814,12 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                 <p className="text-body-md text-on-surface mb-4">
                   <strong>{result.nama}</strong> sudah hadir di kegiatan ini.
                 </p>
+                <div className="bg-secondary-container/35 border border-secondary/20 rounded-xl p-3 text-left mb-4">
+                  <p className="text-[12px] text-on-surface">
+                    Karena status hadir sudah tercatat, langkah selfie tidak dibuka lagi. Ini bisa terjadi bila presensi sudah pernah dilakukan sebelumnya,
+                    termasuk dari input manual operator atau fitur hadirkan semua anggota.
+                  </p>
+                </div>
               </div>
             )}
             {result.type === "error" && (

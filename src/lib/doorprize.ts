@@ -1,5 +1,6 @@
 import type { RowDataPacket } from "mysql2";
 import pool from "@/lib/db";
+import { ensureAnggotaSchema } from "@/lib/anggota";
 
 export type DoorprizePesertaTipe = "anggota" | "tamu";
 
@@ -26,12 +27,15 @@ export interface DoorprizeCandidate {
 }
 
 export async function listHadirAnggotaDoorprizeNames(kegiatanId: number | string): Promise<string[]> {
+  await ensureAnggotaSchema();
+
   // Ambil nama anggota yang hadir
   const [anggotaRows] = await pool.execute<RowDataPacket[]>(
     `SELECT DISTINCT a.nama
      FROM anggota a
      INNER JOIN presensi pr ON pr.anggota_id = a.id
      WHERE pr.kegiatan_id = ?
+       AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
        AND COALESCE(NULLIF(TRIM(a.nama), ''), '') <> ''
      ORDER BY a.nama ASC`,
     [kegiatanId]
@@ -59,6 +63,8 @@ export async function listHadirAnggotaDoorprizeNames(kegiatanId: number | string
 }
 
 export async function listEligibleDoorprizeCandidates(kegiatanId: number | string): Promise<DoorprizeCandidate[]> {
+  await ensureAnggotaSchema();
+
   const [rows] = await pool.execute<DoorprizeCandidateRow[]>(
     `SELECT 'anggota' AS peserta_tipe,
             a.id AS anggota_id,
@@ -70,7 +76,8 @@ export async function listEligibleDoorprizeCandidates(kegiatanId: number | strin
             NULL AS instansi
      FROM anggota a
      INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-     WHERE a.id NOT IN (
+     WHERE a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
+       AND a.id NOT IN (
          SELECT anggota_id
          FROM doorprize_winners
          WHERE kegiatan_id = ?

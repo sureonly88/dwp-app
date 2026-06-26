@@ -29,6 +29,7 @@ interface Winner {
   jabatan: string | null;
   unit_kerja: string | null;
   instansi?: string | null;
+  foto: string | null;
   waktu: string;
 }
 
@@ -39,6 +40,7 @@ interface DrawWinner {
   pesertaTipe: "anggota" | "tamu";
   unit: string | null;
   jabatan: string | null;
+  foto: string | null;
 }
 
 type SpinState = "idle" | "running" | "stopping";
@@ -46,6 +48,43 @@ type SpinState = "idle" | "running" | "stopping";
 function formatTanggal(s: string) {
   if (!s) return "-";
   return new Date(s).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function readDoorprizePageStateFromUrl() {
+  if (typeof window === "undefined") {
+    return { selectedId: null as number | null, undianOpen: false };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const kegiatanParam = params.get("kegiatan");
+  const parsedSelectedId = kegiatanParam ? Number(kegiatanParam) : Number.NaN;
+  const selectedId = Number.isInteger(parsedSelectedId) && parsedSelectedId > 0 ? parsedSelectedId : null;
+
+  return {
+    selectedId,
+    undianOpen: selectedId !== null && params.get("view") === "undian",
+  };
+}
+
+function replaceDoorprizePageStateInUrl(selectedId: number | null, undianOpen: boolean) {
+  if (typeof window === "undefined") return;
+
+  const params = new URLSearchParams(window.location.search);
+  if (selectedId !== null) {
+    params.set("kegiatan", String(selectedId));
+  } else {
+    params.delete("kegiatan");
+  }
+
+  if (selectedId !== null && undianOpen) {
+    params.set("view", "undian");
+  } else {
+    params.delete("view");
+  }
+
+  const nextQuery = params.toString();
+  const nextUrl = nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname;
+  window.history.replaceState(window.history.state, "", nextUrl);
 }
 
 const CONFETTI_COLORS = [
@@ -97,6 +136,8 @@ export default function DoorprizePage() {
   const slowingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const lastPlayedWinnerKeyRef = useRef("");
+  const selectedIdRef = useRef<number | null>(null);
+  const undianOpenRef = useRef(false);
   const [celebrating, setCelebrating] = useState(false);
   const [undiError, setUndiError] = useState<string | null>(null);
 
@@ -105,6 +146,27 @@ export default function DoorprizePage() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
+
+  const resetDoorprizeState = useCallback(() => {
+    if (rollIntervalRef.current) {
+      clearInterval(rollIntervalRef.current);
+      rollIntervalRef.current = null;
+    }
+    slowingRef.current = false;
+    lastPlayedWinnerKeyRef.current = "";
+    setSpinState("idle");
+    setWinners([]);
+    setSetup(null);
+    setKegiatanInfo(null);
+    setHadirCount(null);
+    setEligibleCount(null);
+    setRollNames([]);
+    setUndiError(null);
+    setLastWinners([]);
+    setDisplayName(null);
+    setDisplayNames([]);
+    setCelebrating(false);
+  }, []);
 
   const loadKegiatan = useCallback(async () => {
     try {
@@ -120,6 +182,33 @@ export default function DoorprizePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat data awal halaman dari API.
     loadKegiatan();
   }, [loadKegiatan]);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    undianOpenRef.current = undianOpen;
+  }, [undianOpen]);
+
+  useEffect(() => {
+    const syncStateFromUrl = () => {
+      const nextState = readDoorprizePageStateFromUrl();
+
+      if (selectedIdRef.current !== nextState.selectedId) {
+        resetDoorprizeState();
+        setSelectedId(nextState.selectedId);
+      }
+
+      if (undianOpenRef.current !== nextState.undianOpen) {
+        setUndianOpen(nextState.undianOpen);
+      }
+    };
+
+    syncStateFromUrl();
+    window.addEventListener("popstate", syncStateFromUrl);
+    return () => window.removeEventListener("popstate", syncStateFromUrl);
+  }, [resetDoorprizeState]);
 
   const loadDetail = useCallback(async (kegiatanId: number) => {
     setLoading(true);
@@ -194,6 +283,7 @@ export default function DoorprizePage() {
     setSpinState("idle");
     setUndiError(null);
     setUndianOpen(true);
+    replaceDoorprizePageStateInUrl(selectedId, true);
   };
 
   const closeUndian = () => {
@@ -205,6 +295,7 @@ export default function DoorprizePage() {
     setDisplayNames([]);
     setCelebrating(false);
     setUndianOpen(false);
+    replaceDoorprizePageStateInUrl(selectedId, false);
   };
 
   // ---- audio ----
@@ -435,6 +526,7 @@ export default function DoorprizePage() {
             peserta_tipe: "anggota" | "tamu";
             unit_kerja: string | null;
             jabatan: string | null;
+            foto: string | null;
           }) => ({
             id: winner.id,
             urutan: winner.urutan,
@@ -442,6 +534,7 @@ export default function DoorprizePage() {
             pesertaTipe: winner.peserta_tipe,
             unit: winner.unit_kerja,
             jabatan: winner.jabatan,
+            foto: winner.foto,
           }))
         : [];
 
@@ -675,6 +768,18 @@ export default function DoorprizePage() {
                       key={winner.id}
                       className="rounded-2xl border border-primary/20 bg-primary-fixed px-5 py-6 shadow-lg"
                     >
+                      <div className="mb-4 flex justify-center">
+                        <div className="w-24 h-24 rounded-2xl overflow-hidden border border-primary/20 bg-surface-container shadow-sm flex items-center justify-center">
+                          {winner.foto ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={winner.foto} alt={`Foto ${winner.nama}`} className="w-full h-full object-cover" />
+                            </>
+                          ) : (
+                            <span className="material-symbols-outlined text-primary/50 text-[42px]">account_circle</span>
+                          )}
+                        </div>
+                      </div>
                       <p className="text-[11px] uppercase tracking-[0.25em] text-on-primary-fixed-variant/70 mb-3">
                         Hadiah ke-{winner.urutan}
                       </p>
@@ -770,14 +875,26 @@ export default function DoorprizePage() {
                   {winners.map((w) => (
                     <div
                       key={w.id}
-                      className={`flex-shrink-0 flex flex-col gap-1 px-4 py-2.5 rounded-xl border ${
+                      className={`flex-shrink-0 flex items-center gap-3 px-4 py-2.5 rounded-xl border ${
                         highlightedWinnerIds.has(w.id)
                           ? "bg-primary-fixed border-primary/40"
                           : "bg-surface-container border-outline-variant"
                       }`}
                     >
-                      <span className="text-on-surface-variant text-[10px] uppercase">Hadiah ke-{w.urutan}</span>
-                      <span className="text-on-surface text-[13px] font-medium whitespace-nowrap uppercase">{w.nama}</span>
+                      <div className="w-9 h-9 rounded-full overflow-hidden bg-surface-container-high border border-outline-variant flex items-center justify-center shrink-0">
+                        {w.foto ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={w.foto} alt={`Foto ${w.nama}`} className="w-full h-full object-cover" />
+                          </>
+                        ) : (
+                          <span className="material-symbols-outlined text-on-surface-variant text-[20px]">person</span>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-on-surface-variant text-[10px] uppercase">Hadiah ke-{w.urutan}</span>
+                        <span className="text-on-surface text-[13px] font-medium whitespace-nowrap uppercase">{w.nama}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -810,17 +927,11 @@ export default function DoorprizePage() {
               <select
                 value={selectedId ?? ""}
                 onChange={(e) => {
-                  setSelectedId(e.target.value ? Number(e.target.value) : null);
-                  setWinners([]);
-                  setSetup(null);
-                  setKegiatanInfo(null);
-                  setHadirCount(null);
-                  setEligibleCount(null);
-                  setRollNames([]);
-                  setUndiError(null);
-                  setLastWinners([]);
-                  setDisplayName(null);
-                  setDisplayNames([]);
+                  const nextSelectedId = e.target.value ? Number(e.target.value) : null;
+                  resetDoorprizeState();
+                  setUndianOpen(false);
+                  setSelectedId(nextSelectedId);
+                  replaceDoorprizePageStateInUrl(nextSelectedId, false);
                 }}
                 className="w-full appearance-none border border-outline-variant rounded-lg pl-10 pr-10 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11"
               >
@@ -964,6 +1075,7 @@ export default function DoorprizePage() {
                     <thead>
                       <tr className="bg-surface-container border-b border-outline-variant text-on-surface-variant text-[11px] uppercase tracking-widest">
                         <th className="px-5 py-3 text-center w-12">#</th>
+                        <th className="px-5 py-3 text-center">Foto</th>
                         <th className="px-5 py-3 text-left">Nama</th>
                         <th className="px-5 py-3 text-left">Jenis</th>
                         <th className="px-5 py-3 text-left">NIP</th>
@@ -980,6 +1092,18 @@ export default function DoorprizePage() {
                             <span className="inline-flex w-8 h-8 items-center justify-center rounded-full bg-secondary-fixed text-secondary font-bold text-[13px]">
                               {w.urutan}
                             </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-center">
+                            <div className="inline-flex w-12 h-12 rounded-xl overflow-hidden bg-surface-container-high border border-outline-variant items-center justify-center">
+                              {w.foto ? (
+                                <>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={w.foto} alt={`Foto ${w.nama}`} className="w-full h-full object-cover" />
+                                </>
+                              ) : (
+                                <span className="material-symbols-outlined text-on-surface-variant text-[24px]">person</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-5 py-3.5 font-bold text-on-surface uppercase whitespace-nowrap text-[15px]">{w.nama}</td>
                           <td className="px-5 py-3.5 whitespace-nowrap">

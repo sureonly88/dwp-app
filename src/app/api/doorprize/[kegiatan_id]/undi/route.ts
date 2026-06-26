@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
 import { requireAdmin } from "@/lib/admin-auth";
+import { ensureAnggotaSchema } from "@/lib/anggota";
 
 interface DoorprizeCandidateRow extends RowDataPacket {
   peserta_tipe: "anggota" | "tamu";
@@ -13,6 +14,7 @@ interface DoorprizeCandidateRow extends RowDataPacket {
   jabatan: string | null;
   unit_kerja: string | null;
   instansi: string | null;
+  foto: string | null;
 }
 
 function pickRandomBatch<T>(items: T[], count: number): T[] {
@@ -31,6 +33,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
     const { response } = await requireAdmin(req);
     if (response) return response;
     const { kegiatan_id } = await params;
+
+    await ensureAnggotaSchema();
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
@@ -66,10 +70,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
               a.nip,
               a.jabatan,
               a.unit_kerja,
-              NULL AS instansi
+               NULL AS instansi,
+               CASE
+                 WHEN pr.foto IS NOT NULL AND TRIM(pr.foto) <> '' THEN pr.foto
+                 ELSE NULL
+               END AS foto
        FROM anggota a
        INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-       WHERE a.id NOT IN (
+       WHERE a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
+         AND a.id NOT IN (
            SELECT anggota_id
            FROM doorprize_winners
            WHERE kegiatan_id = ?
@@ -85,7 +94,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
               NULL AS nip,
               'Tamu' AS jabatan,
               COALESCE(NULLIF(TRIM(pt.instansi), ''), 'Tamu Non-Anggota') AS unit_kerja,
-              pt.instansi
+               pt.instansi,
+               CASE
+                 WHEN pt.foto IS NOT NULL AND TRIM(pt.foto) <> '' THEN pt.foto
+                 ELSE NULL
+               END AS foto
        FROM presensi_tamu pt
        WHERE pt.kegiatan_id = ?
          AND pt.id NOT IN (
@@ -132,6 +145,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
         jabatan: winner.jabatan,
         unit_kerja: winner.unit_kerja,
         instansi: winner.instansi,
+        foto: winner.foto,
       });
     }
 

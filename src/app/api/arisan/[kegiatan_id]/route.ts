@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
-import { buildCurrentActiveCondition } from "@/lib/anggota";
+import { buildCurrentActiveCondition, ensureAnggotaSchema } from "@/lib/anggota";
 
 // GET /api/arisan/[kegiatan_id] — setup + winners
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
   try {
+    await ensureAnggotaSchema();
+
     const { kegiatan_id } = await params;
 
     const [kegRows] = await pool.execute<RowDataPacket[]>(
@@ -23,7 +25,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
     );
 
     const [winners] = await pool.execute<RowDataPacket[]>(
-      `SELECT w.id, w.anggota_id, w.urutan, w.waktu, a.nama, a.nip, a.unit_kerja, a.jabatan
+      `SELECT w.id, w.anggota_id, w.urutan, w.waktu, a.nama, a.nip, a.unit_kerja, a.jabatan,
+              (
+                SELECT p.foto
+                FROM presensi p
+                WHERE p.kegiatan_id = w.kegiatan_id
+                  AND p.anggota_id = w.anggota_id
+                  AND p.foto IS NOT NULL
+                  AND TRIM(p.foto) <> ''
+                ORDER BY p.waktu_hadir DESC, p.id DESC
+                LIMIT 1
+              ) AS foto
        FROM arisan_winners w
        JOIN anggota a ON a.id = w.anggota_id
        WHERE w.kegiatan_id = ?
@@ -43,6 +55,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
        FROM anggota a
        INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
        WHERE ${buildCurrentActiveCondition("a")}
+         AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
          AND a.id NOT IN (
            SELECT anggota_id FROM arisan_winners WHERE kegiatan_id = ?
          )
@@ -61,6 +74,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
        FROM anggota a
        INNER JOIN presensi pr ON pr.anggota_id = a.id
        WHERE pr.kegiatan_id = ?
+         AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
          AND COALESCE(NULLIF(TRIM(a.nama), ''), '') <> ''
        ORDER BY a.nama ASC`,
       [kegiatan_id]

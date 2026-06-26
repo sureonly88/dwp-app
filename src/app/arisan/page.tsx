@@ -30,6 +30,7 @@ interface ArisanWinner {
   nip: string;
   jabatan: string;
   unit_kerja: string;
+  foto: string | null;
 }
 
 interface AllWinner {
@@ -966,9 +967,21 @@ export default function ArisanPage() {
                   {displayName ?? "— — —"}
                 </h1>
                 {spinState === "idle" && lastWinner && (
-                  <p className="mt-4 text-on-surface-variant text-[14px] shimmer-text">
-                    {lastWinner.unit_kerja} &nbsp;·&nbsp; {lastWinner.jabatan}
-                  </p>
+                  <div className="mt-6 flex flex-col items-center gap-4 winner-reveal">
+                    <div className="w-40 h-40 rounded-3xl overflow-hidden border border-primary/20 bg-surface-container shadow-lg flex items-center justify-center">
+                      {lastWinner.foto ? (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={lastWinner.foto} alt={`Foto ${lastWinner.nama}`} className="w-full h-full object-cover" />
+                        </>
+                      ) : (
+                        <span className="material-symbols-outlined text-primary/50 text-[72px]">account_circle</span>
+                      )}
+                    </div>
+                    <p className="text-on-surface-variant text-[14px] shimmer-text text-center">
+                      {lastWinner.unit_kerja} &nbsp;·&nbsp; {lastWinner.jabatan}
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -1020,6 +1033,16 @@ export default function ArisanPage() {
                       >
                         <div className="w-7 h-7 rounded-full bg-secondary-fixed flex items-center justify-center font-bold text-secondary text-[12px]">
                           {w.urutan}
+                        </div>
+                        <div className="w-9 h-9 rounded-full overflow-hidden bg-surface-container-high border border-outline-variant flex items-center justify-center shrink-0">
+                          {w.foto ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={w.foto} alt={`Foto ${w.nama}`} className="w-full h-full object-cover" />
+                            </>
+                          ) : (
+                            <span className="material-symbols-outlined text-on-surface-variant text-[20px]">person</span>
+                          )}
                         </div>
                         <span className="text-on-surface text-[13px] font-medium whitespace-nowrap">{w.nama}</span>
                       </div>
@@ -1125,6 +1148,7 @@ export default function ArisanPage() {
                     <thead>
                       <tr className="bg-surface-container border-b border-outline-variant text-on-surface-variant text-[11px] uppercase tracking-widest">
                         <th className="px-5 py-3 text-center w-12">#</th>
+                        <th className="px-5 py-3 text-center">Foto</th>
                         <th className="px-5 py-3 text-left">Nama</th>
                         <th className="px-5 py-3 text-left">NIP</th>
                         <th className="px-5 py-3 text-left">Jabatan</th>
@@ -1140,6 +1164,18 @@ export default function ArisanPage() {
                             <span className="inline-flex w-8 h-8 items-center justify-center rounded-full bg-secondary-fixed text-secondary font-bold text-[13px]">
                               {w.urutan}
                             </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-center">
+                            <div className="inline-flex w-12 h-12 rounded-xl overflow-hidden bg-surface-container-high border border-outline-variant items-center justify-center">
+                              {w.foto ? (
+                                <>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={w.foto} alt={`Foto ${w.nama}`} className="w-full h-full object-cover" />
+                                </>
+                              ) : (
+                                <span className="material-symbols-outlined text-on-surface-variant text-[24px]">person</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-5 py-3.5 font-medium text-on-surface whitespace-nowrap">{w.nama}</td>
                           <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.nip || "-"}</td>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
-import { buildCurrentActiveCondition } from "@/lib/anggota";
+import { buildCurrentActiveCondition, ensureAnggotaSchema } from "@/lib/anggota";
 
 // POST /api/arisan/[kegiatan_id]/undi — undi 1 pemenang acak (yang belum pernah menang di kegiatan ini)
 export async function POST(req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
@@ -10,6 +10,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
     const { response } = await requireAdmin(req);
     if (response) return response;
     const { kegiatan_id } = await params;
+
+    await ensureAnggotaSchema();
 
     const [setupRows] = await pool.execute<RowDataPacket[]>(
       `SELECT jumlah_pemenang FROM arisan_setup WHERE kegiatan_id = ?`,
@@ -40,10 +42,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
     // 2. Belum jadi pemenang arisan di kegiatan ini
     // 3. Belum pernah menang arisan di tahun yang sama dengan kegiatan ini
     const [pickRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja
+      `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja,
+              (
+                SELECT p.foto
+                FROM presensi p
+                WHERE p.kegiatan_id = ?
+                  AND p.anggota_id = a.id
+                  AND p.foto IS NOT NULL
+                  AND TRIM(p.foto) <> ''
+                ORDER BY p.waktu_hadir DESC, p.id DESC
+                LIMIT 1
+              ) AS foto
        FROM anggota a
        INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
        WHERE ${buildCurrentActiveCondition("a")}
+         AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
          AND a.id NOT IN (
            SELECT anggota_id FROM arisan_winners WHERE kegiatan_id = ?
          )
@@ -55,7 +68,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
          )
        ORDER BY RAND()
        LIMIT 1`,
-      [kegiatan_id, kegiatan_id, kegiatan_id]
+      [kegiatan_id, kegiatan_id, kegiatan_id, kegiatan_id]
     );
 
     if (pickRows.length === 0) {
@@ -82,6 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
         nip: picked.nip,
         jabatan: picked.jabatan,
         unit_kerja: picked.unit_kerja,
+        foto: picked.foto ?? null,
         urutan,
       },
     });

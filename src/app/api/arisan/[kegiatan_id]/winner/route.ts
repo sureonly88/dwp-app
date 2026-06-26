@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
-import { buildEffectiveStatusSql } from "@/lib/anggota";
+import { buildEffectiveStatusSql, ensureAnggotaSchema } from "@/lib/anggota";
 
 // POST /api/arisan/[kegiatan_id]/winner — input manual penerima arisan
 export async function POST(
@@ -12,6 +12,8 @@ export async function POST(
   const { response } = await requireAdmin(req);
   if (response) return response;
   try {
+    await ensureAnggotaSchema();
+
     const { kegiatan_id } = await params;
     const body = await req.json();
     const anggotaId = Number(body.anggota_id);
@@ -30,14 +32,29 @@ export async function POST(
 
     const effectiveStatusSql = buildEffectiveStatusSql();
     const [anggotaRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, nama, nip, jabatan, unit_kerja, ${effectiveStatusSql} AS status FROM anggota WHERE id = ?`,
-      [anggotaId],
+      `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja, a.status_keanggotaan, ${effectiveStatusSql} AS status,
+              (
+                SELECT p.foto
+                FROM presensi p
+                WHERE p.kegiatan_id = ?
+                  AND p.anggota_id = a.id
+                  AND p.foto IS NOT NULL
+                  AND TRIM(p.foto) <> ''
+                ORDER BY p.waktu_hadir DESC, p.id DESC
+                LIMIT 1
+              ) AS foto
+       FROM anggota a
+       WHERE a.id = ?`,
+      [kegiatan_id, anggotaId],
     );
     if (anggotaRows.length === 0) {
       return NextResponse.json({ error: "Anggota tidak ditemukan" }, { status: 404 });
     }
     if (anggotaRows[0].status !== "Aktif") {
       return NextResponse.json({ error: "Hanya anggota aktif yang dapat dicatat sebagai penerima arisan" }, { status: 400 });
+    }
+    if (!["Istri Karyawan", "Karyawati"].includes(String(anggotaRows[0].status_keanggotaan ?? ""))) {
+      return NextResponse.json({ error: "Penerima arisan hanya berlaku untuk Istri Karyawan dan Karyawati" }, { status: 400 });
     }
 
     const [existingSameEventRows] = await pool.execute<RowDataPacket[]>(
@@ -83,6 +100,7 @@ export async function POST(
         nip: anggotaRows[0].nip,
         jabatan: anggotaRows[0].jabatan,
         unit_kerja: anggotaRows[0].unit_kerja,
+        foto: anggotaRows[0].foto ?? null,
         urutan,
       },
     }, { status: 201 });
