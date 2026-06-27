@@ -63,7 +63,7 @@ function getInitials(nama: string) {
   return nama.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 }
 
-function formatTanggal(s: string) {
+function formatTanggal(s: string | null) {
   if (!s) return "-";
   return new Date(s).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
 }
