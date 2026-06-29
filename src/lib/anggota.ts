@@ -9,6 +9,7 @@ let ensureTanggalLahirPromise: Promise<void> | null = null;
 export interface AnggotaFilters {
   search?: string;
   status?: string;
+  statusKeanggotaan?: string;
   unit?: string;
   jenis?: string;
 }
@@ -45,6 +46,11 @@ export function buildAnggotaWhereClause(filters: AnggotaFilters) {
   if (filters.status) {
     conditions.push(`${effectiveStatusSql} = ?`);
     params.push(filters.status);
+  }
+
+  if (filters.statusKeanggotaan) {
+    conditions.push("status_keanggotaan = ?");
+    params.push(filters.statusKeanggotaan);
   }
 
   if (filters.unit) {

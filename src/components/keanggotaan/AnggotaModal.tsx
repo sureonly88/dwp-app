@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { STATUS_KEANGGOTAAN_OPTIONS, type StatusKeanggotaan } from "@/lib/anggota-options";
 
 interface UnitKerjaOption {
@@ -60,29 +60,43 @@ const EMPTY_FORM: AnggotaFormData = {
   tanggal_pensiun: "",
 };
 
+function normalizeFormData(initialData?: AnggotaModalProps["initialData"]): AnggotaFormData {
+  if (!initialData) return EMPTY_FORM;
+
+  return {
+    nama: initialData.nama,
+    nip: initialData.nip,
+    jabatan: initialData.jabatan,
+    unit_kerja: initialData.unit_kerja,
+    status: initialData.status,
+    status_keanggotaan: initialData.status_keanggotaan ?? EMPTY_FORM.status_keanggotaan,
+    no_hp: initialData.no_hp ?? "",
+    email: initialData.email ?? "",
+    alamat: initialData.alamat ?? "",
+    tanggal_lahir: initialData.tanggal_lahir ? initialData.tanggal_lahir.split("T")[0] : "",
+    join_date: initialData.join_date?.split("T")[0] ?? EMPTY_FORM.join_date,
+    tanggal_keluar: initialData.tanggal_keluar ? initialData.tanggal_keluar.split("T")[0] : "",
+    tanggal_pensiun: initialData.tanggal_pensiun ? initialData.tanggal_pensiun.split("T")[0] : "",
+  };
+}
+
 export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: AnggotaModalProps) {
-  const [form, setForm] = useState<AnggotaFormData>(
-    initialData
-      ? {
-          nama: initialData.nama,
-          nip: initialData.nip,
-          jabatan: initialData.jabatan,
-          unit_kerja: initialData.unit_kerja,
-          status: initialData.status,
-          status_keanggotaan: initialData.status_keanggotaan ?? EMPTY_FORM.status_keanggotaan,
-          no_hp: initialData.no_hp ?? "",
-          email: initialData.email ?? "",
-          alamat: initialData.alamat ?? "",
-          tanggal_lahir: initialData.tanggal_lahir ? initialData.tanggal_lahir.split("T")[0] : "",
-          join_date: initialData.join_date?.split("T")[0] ?? EMPTY_FORM.join_date,
-          tanggal_keluar: initialData.tanggal_keluar ? initialData.tanggal_keluar.split("T")[0] : "",
-          tanggal_pensiun: initialData.tanggal_pensiun ? initialData.tanggal_pensiun.split("T")[0] : "",
-        }
-      : EMPTY_FORM
-  );
+  const [form, setForm] = useState<AnggotaFormData>(() => normalizeFormData(initialData));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unitOptions, setUnitOptions] = useState<UnitKerjaOption[]>([]);
+
+  const visibleUnitOptions = useMemo(() => {
+    if (!form.unit_kerja) return unitOptions;
+
+    const hasSelectedUnit = unitOptions.some((option) => option.nama === form.unit_kerja);
+    if (hasSelectedUnit) return unitOptions;
+
+    return [
+      { id: -1, nama: form.unit_kerja, aktif: 0 },
+      ...unitOptions,
+    ];
+  }, [form.unit_kerja, unitOptions]);
 
   // Fetch unit kerja dari API
   useEffect(() => {
@@ -237,7 +251,11 @@ export default function AnggotaModal({ mode, initialData, onClose, onSuccess }: 
                   style={{ paddingTop: '10px', paddingBottom: '10px' }}
                   className="appearance-none border border-outline-variant rounded-lg px-4 text-body-sm bg-surface focus:border-primary focus:outline-none text-on-surface"
                 >
-                  {unitOptions.map((u) => <option key={u.id} value={u.nama}>{u.nama}</option>)}
+                  {visibleUnitOptions.map((u) => (
+                    <option key={`${u.id}-${u.nama}`} value={u.nama}>
+                      {u.nama}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

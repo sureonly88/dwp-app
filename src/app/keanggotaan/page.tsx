@@ -80,6 +80,25 @@ function statusKeanggotaanVariant(status: StatusKeanggotaan) {
   return "warning" as const;
 }
 
+function mapAnggotaToFormData(anggota: Anggota): AnggotaFormData & { id: number } {
+  return {
+    id: anggota.id,
+    nama: anggota.nama,
+    nip: anggota.nip,
+    jabatan: anggota.jabatan,
+    unit_kerja: anggota.unit_kerja,
+    status: anggota.status,
+    status_keanggotaan: anggota.status_keanggotaan,
+    no_hp: anggota.no_hp ?? "",
+    email: anggota.email ?? "",
+    alamat: anggota.alamat ?? "",
+    tanggal_lahir: anggota.tanggal_lahir ? anggota.tanggal_lahir.split("T")[0] : "",
+    join_date: anggota.join_date?.split("T")[0] ?? "",
+    tanggal_keluar: anggota.tanggal_keluar ? anggota.tanggal_keluar.split("T")[0] : "",
+    tanggal_pensiun: anggota.tanggal_pensiun ? anggota.tanggal_pensiun.split("T")[0] : "",
+  };
+}
+
 export default function KeanggotaanPage() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [data, setData] = useState<Anggota[]>([]);
@@ -117,12 +136,13 @@ export default function KeanggotaanPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/anggota?status=Aktif&limit=1000")
-      .then((r) => r.json())
-      .then((json: ApiResponse) => {
-        const rows = json.data ?? [];
-        setTotalAktifIstriKaryawan(rows.filter((item) => item.status_keanggotaan === "Istri Karyawan").length);
-        setTotalAktifKaryawati(rows.filter((item) => item.status_keanggotaan === "Karyawati").length);
+    Promise.all([
+      fetch("/api/anggota?status=Aktif&statusKeanggotaan=Istri%20Karyawan&limit=1").then((r) => r.json() as Promise<{ total?: number }>),
+      fetch("/api/anggota?status=Aktif&statusKeanggotaan=Karyawati&limit=1").then((r) => r.json() as Promise<{ total?: number }>),
+    ])
+      .then(([istriKaryawan, karyawati]) => {
+        setTotalAktifIstriKaryawan(istriKaryawan.total ?? 0);
+        setTotalAktifKaryawati(karyawati.total ?? 0);
       })
       .catch(() => {
         setTotalAktifIstriKaryawan(0);
@@ -181,23 +201,18 @@ export default function KeanggotaanPage() {
       .catch(() => setCurrentUser(null));
   }, []);
 
-  const handleEdit = (anggota: Anggota) => {
-    setEditTarget({
-      id: anggota.id,
-      nama: anggota.nama,
-      nip: anggota.nip,
-      jabatan: anggota.jabatan,
-      unit_kerja: anggota.unit_kerja,
-      status: anggota.status,
-      status_keanggotaan: anggota.status_keanggotaan,
-      no_hp: anggota.no_hp ?? "",
-      email: anggota.email ?? "",
-      alamat: anggota.alamat ?? "",
-      tanggal_lahir: anggota.tanggal_lahir ? anggota.tanggal_lahir.split("T")[0] : "",
-      join_date: anggota.join_date?.split("T")[0] ?? "",
-      tanggal_keluar: anggota.tanggal_keluar ? anggota.tanggal_keluar.split("T")[0] : "",
-      tanggal_pensiun: anggota.tanggal_pensiun ? anggota.tanggal_pensiun.split("T")[0] : "",
-    });
+  const handleEdit = async (anggota: Anggota) => {
+    try {
+      const res = await fetch(`/api/anggota/${anggota.id}`);
+      if (!res.ok) throw new Error();
+
+      const latest: Anggota = await res.json();
+      setEditTarget(mapAnggotaToFormData(latest));
+    } catch {
+      setEditTarget(mapAnggotaToFormData(anggota));
+      showToast("Menampilkan data terakhir yang tersedia. Gagal mengambil versi terbaru anggota.", "error");
+    }
+
     setModal("edit");
   };
 

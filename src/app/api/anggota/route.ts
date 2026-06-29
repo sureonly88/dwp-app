@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") ?? "";
     const status = searchParams.get("status") ?? "";
+    const statusKeanggotaan = searchParams.get("statusKeanggotaan") ?? "";
     const unit = searchParams.get("unit") ?? "";
     const jenis = searchParams.get("jenis") ?? "";
     const parsedPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(100, parsedLimit) : 10;
     const offset = (page - 1) * limit;
 
-    const { where, params } = buildAnggotaWhereClause({ search, status, unit, jenis });
+    const { where, params } = buildAnggotaWhereClause({ search, status, statusKeanggotaan, unit, jenis });
     const effectiveStatusSql = buildEffectiveStatusSql();
 
     const [rows] = await pool.execute<AnggotaRow[]>(
