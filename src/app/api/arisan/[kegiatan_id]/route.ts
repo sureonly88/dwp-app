@@ -43,6 +43,23 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
       [kegiatan_id]
     );
 
+    const normalizedWinners = winners.map((winner, index) => ({
+      ...winner,
+      urutan: index + 1,
+    }));
+
+    const winnersToNormalize = winners.filter((winner, index) => Number(winner.urutan) !== index + 1);
+    if (winnersToNormalize.length > 0) {
+      await Promise.all(
+        winners.map((winner, index) => pool.execute<ResultSetHeader>(
+          `UPDATE arisan_winners
+           SET urutan = ?
+           WHERE id = ?`,
+          [index + 1, winner.id]
+        ))
+      );
+    }
+
     // Jumlah anggota yang hadir di kegiatan ini
     const [hadirRows] = await pool.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS hadir_count FROM presensi WHERE kegiatan_id = ?`,
@@ -86,7 +103,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
     return NextResponse.json({
       kegiatan: kegRows[0],
       setup: setupRows[0] ?? null,
-      winners,
+      winners: normalizedWinners,
       hadir_count: Number(hadirRows[0].hadir_count),
       eligible_count: Number(eligibleRows[0].eligible_count),
       roll_names: rollNames,

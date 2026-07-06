@@ -140,6 +140,7 @@ export default function DoorprizePage() {
   const undianOpenRef = useRef(false);
   const [celebrating, setCelebrating] = useState(false);
   const [undiError, setUndiError] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const showToast = (msg: string, type: "success" | "error" = "success") => {
@@ -573,6 +574,30 @@ export default function DoorprizePage() {
       loadDetail(selectedId);
     } catch {
       showToast("Gagal membatalkan", "error");
+    }
+  };
+
+  const handleDownloadWinnersPdf = async () => {
+    if (!selectedId) return;
+    setDownloadingPdf(true);
+    try {
+      const res = await fetch(`/api/doorprize/${selectedId}/pdf`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error ?? "Gagal mengunduh PDF");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pemenang-doorprize-${kegiatanInfo?.event_code ?? selectedId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showToast((e as Error).message ?? "Gagal mengunduh PDF", "error");
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -1068,7 +1093,17 @@ export default function DoorprizePage() {
                     <span className="material-symbols-outlined material-symbols-filled text-secondary text-[22px]">emoji_events</span>
                     <h4 className="font-h3 text-[20px] text-on-surface">Daftar Pemenang</h4>
                   </div>
-                  <Badge label={`${winners.length} pemenang`} variant="info" />
+                  <div className="flex items-center gap-3">
+                    <Badge label={`${winners.length} pemenang`} variant="info" />
+                    <button
+                      onClick={() => void handleDownloadWinnersPdf()}
+                      disabled={downloadingPdf}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-primary text-primary text-[12px] font-medium hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+                      {downloadingPdf ? "Mengunduh PDF..." : "Unduh PDF"}
+                    </button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-body-sm">

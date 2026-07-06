@@ -161,6 +161,7 @@ export default function ArisanPage() {
   const [allWinnersYear, setAllWinnersYear] = useState<string>(String(new Date().getFullYear()));
   const [allWinnersMonth, setAllWinnersMonth] = useState<string>("");
   const [allWinnersLoading, setAllWinnersLoading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // Manual input
   const [anggotaOptions, setAnggotaOptions] = useState<AnggotaOption[]>([]);
@@ -632,6 +633,30 @@ export default function ArisanPage() {
       setManualError((e as Error).message ?? "Gagal mencatat penerima arisan");
     } finally {
       setManualSaving(false);
+    }
+  };
+
+  const handleDownloadWinnersPdf = async () => {
+    if (!selectedId) return;
+    setDownloadingPdf(true);
+    try {
+      const res = await fetch(`/api/arisan/${selectedId}/pdf`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error ?? "Gagal mengunduh PDF");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pemenang-arisan-${kegiatanInfo?.event_code ?? selectedId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showToast((e as Error).message ?? "Gagal mengunduh PDF", "error");
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -1202,22 +1227,32 @@ export default function ArisanPage() {
 
               {winners.length > 0 && (
                 <div className="p-4 border-t border-outline-variant">
-                  <button
-                    onClick={() => {
-                      const header = ["Urutan", "Nama", "NIP", "Jabatan", "Unit Kerja"];
-                      const rows = winners.map((w) => [w.urutan, w.nama, w.nip, w.jabatan, w.unit_kerja]);
-                      const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-                      const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a"); a.href = url;
-                      a.download = `pemenang-arisan-${kegiatanInfo?.event_code ?? selectedId}.csv`;
-                      a.click(); URL.revokeObjectURL(url);
-                    }}
-                    className="w-full py-2.5 border border-secondary text-secondary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-secondary-container/10 transition-colors text-label-md"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">download</span>
-                    Unduh Hasil (.csv)
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      onClick={() => {
+                        const header = ["Urutan", "Nama", "NIP", "Jabatan", "Unit Kerja"];
+                        const rows = winners.map((w) => [w.urutan, w.nama, w.nip, w.jabatan, w.unit_kerja]);
+                        const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+                        const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a"); a.href = url;
+                        a.download = `pemenang-arisan-${kegiatanInfo?.event_code ?? selectedId}.csv`;
+                        a.click(); URL.revokeObjectURL(url);
+                      }}
+                      className="w-full py-2.5 border border-secondary text-secondary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-secondary-container/10 transition-colors text-label-md"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">download</span>
+                      Unduh Hasil (.csv)
+                    </button>
+                    <button
+                      onClick={() => void handleDownloadWinnersPdf()}
+                      disabled={downloadingPdf}
+                      className="w-full py-2.5 border border-primary text-primary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-primary/5 transition-colors text-label-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+                      {downloadingPdf ? "Mengunduh PDF..." : "Unduh Hasil (.pdf)"}
+                    </button>
+                  </div>
                 </div>
               )}
             </Card>
