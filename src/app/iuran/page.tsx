@@ -53,7 +53,7 @@ interface LaporanResponse {
   };
 }
 
-interface UnitKerjaOption { id: number; nama: string; aktif: number }
+interface UnitKerjaOption { id: number; nama: string }
 
 const hasValidLaporanRows = (value: unknown): value is LaporanResponse => {
   return Boolean(
@@ -286,9 +286,9 @@ export default function IuranPage() {
 
   const fetchUnits = useCallback(async () => {
     try {
-      const r = await fetch("/api/unit-kerja");
+      const r = await fetch("/api/anggota/unit-kerja");
       const data: UnitKerjaOption[] = await r.json();
-      setUnitOptions(data.filter((u) => u.aktif === 1));
+      setUnitOptions(data);
     } catch { /* ignore */ }
   }, []);
 

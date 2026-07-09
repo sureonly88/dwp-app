@@ -10,7 +10,7 @@ import AnggotaModal, { type AnggotaFormData } from "@/components/keanggotaan/Ang
 import DeleteConfirm from "@/components/keanggotaan/DeleteConfirm";
 import { FetchErrorRow } from "@/components/ui/FetchError";
 import type { SessionUser } from "@/lib/auth-token";
-import type { StatusKeanggotaan } from "@/lib/anggota-options";
+import { STATUS_KEANGGOTAAN_OPTIONS, type StatusKeanggotaan } from "@/lib/anggota-options";
 
 interface Anggota {
   id: number;
@@ -39,7 +39,6 @@ interface ApiResponse {
 interface UnitKerjaOption {
   id: number;
   nama: string;
-  aktif: number;
 }
 
 interface ImportResponse {
@@ -114,18 +113,18 @@ export default function KeanggotaanPage() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterUnit, setFilterUnit] = useState("");
-  const [filterJenis, setFilterJenis] = useState<"" | "pengurus" | "anggota">("");
+  const [filterStatusKeanggotaan, setFilterStatusKeanggotaan] = useState<"" | StatusKeanggotaan>("");
   const [unitOptions, setUnitOptions] = useState<UnitKerjaOption[]>([]);
 
   const updateSearch = (value: string) => { setSearch(value); setPage(1); };
   const updateStatus = (value: string) => { setFilterStatus(value); setPage(1); };
   const updateUnit = (value: string) => { setFilterUnit(value); setPage(1); };
-  const updateJenis = (value: "" | "pengurus" | "anggota") => { setFilterJenis(value); setPage(1); };
+  const updateStatusKeanggotaan = (value: "" | StatusKeanggotaan) => { setFilterStatusKeanggotaan(value); setPage(1); };
 
   useEffect(() => {
-    fetch("/api/unit-kerja")
+    fetch("/api/anggota/unit-kerja")
       .then((r) => r.json())
-      .then((data: UnitKerjaOption[]) => setUnitOptions(data.filter((u) => u.aktif === 1)))
+      .then((data: UnitKerjaOption[]) => setUnitOptions(data))
       .catch(() => {});
   }, []);
 
@@ -173,8 +172,8 @@ export default function KeanggotaanPage() {
       const params = new URLSearchParams({
         search,
         status: filterStatus,
+        statusKeanggotaan: filterStatusKeanggotaan,
         unit: filterUnit,
-        jenis: filterJenis,
         page: String(page),
         limit: String(LIMIT),
       });
@@ -188,7 +187,7 @@ export default function KeanggotaanPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, filterUnit, filterJenis, page]);
+  }, [search, filterStatus, filterUnit, filterStatusKeanggotaan, page]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { void fetchData(); }, 0);
@@ -285,8 +284,8 @@ export default function KeanggotaanPage() {
 
     if (search) params.set("search", search);
     if (filterStatus) params.set("status", filterStatus);
+    if (filterStatusKeanggotaan) params.set("statusKeanggotaan", filterStatusKeanggotaan);
     if (filterUnit) params.set("unit", filterUnit);
-    if (filterJenis) params.set("jenis", filterJenis);
 
     window.location.href = `/api/anggota/export?${params.toString()}`;
   };
@@ -296,8 +295,8 @@ export default function KeanggotaanPage() {
 
     if (search) params.set("search", search);
     if (filterStatus) params.set("status", filterStatus);
+    if (filterStatusKeanggotaan) params.set("statusKeanggotaan", filterStatusKeanggotaan);
     if (filterUnit) params.set("unit", filterUnit);
-    if (filterJenis) params.set("jenis", filterJenis);
 
     setDownloadingPdf(true);
     try {
@@ -532,17 +531,18 @@ export default function KeanggotaanPage() {
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-label-sm text-on-surface-variant">Jenis</label>
+                <label className="text-label-sm text-on-surface-variant">Status Keanggotaan</label>
                 <div className="relative">
                   <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">groups</span>
                   <select
-                    value={filterJenis}
-                    onChange={(e) => updateJenis(e.target.value as "" | "pengurus" | "anggota")}
+                    value={filterStatusKeanggotaan}
+                    onChange={(e) => updateStatusKeanggotaan(e.target.value as "" | StatusKeanggotaan)}
                     className="appearance-none pl-9 pr-8 py-2.5 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[150px] text-on-surface"
                   >
-                    <option value="">Semua</option>
-                    <option value="pengurus">Pengurus</option>
-                    <option value="anggota">Anggota</option>
+                    <option value="">Semua Status Keanggotaan</option>
+                    {STATUS_KEANGGOTAAN_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
                   </select>
                   <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">expand_more</span>
                 </div>
