@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
 import { computeKegiatanStatus } from "@/lib/kegiatanUtils";
-import { buildEffectiveStatusSql, ensureAnggotaSchema } from "@/lib/anggota";
+import { buildCurrentActiveCondition, buildEffectiveStatusSql, ensureAnggotaSchema } from "@/lib/anggota";
 
 interface AttendanceHighlightRow extends RowDataPacket {
   anggota_id: number;
@@ -16,6 +16,16 @@ interface AttendanceHighlightRow extends RowDataPacket {
   tanggal: string;
   waktu_mulai: string;
   waktu_hadir: string;
+}
+
+interface BirthdayAnggotaRow extends RowDataPacket {
+  id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  status: string;
+  tanggal_lahir: string;
 }
 
 export async function GET() {
@@ -32,6 +42,7 @@ export async function GET() {
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year}-12-31`;
     const effectiveStatusSql = buildEffectiveStatusSql();
+    const activeAnggotaCondition = buildCurrentActiveCondition();
 
     // Jalankan semua query independen secara paralel untuk meminimalkan latency DB
     const [
@@ -49,6 +60,7 @@ export async function GET() {
       [lebihAwalKaryawati],
       [tepatWaktuIstriKaryawan],
       [tepatWaktuKaryawati],
+      [ulangTahunBulanIni],
     ] = await Promise.all([
       // 1. Anggota stats
       pool.execute<RowDataPacket[]>(`
@@ -194,6 +206,17 @@ export async function GET() {
         ORDER BY p.waktu_hadir DESC
         LIMIT 5
       `),
+      // 13. Daftar anggota ulang tahun bulan berjalan
+      pool.execute<BirthdayAnggotaRow[]>(`
+        SELECT id, nama, nip, jabatan, unit_kerja,
+               ${effectiveStatusSql} AS status,
+               tanggal_lahir
+        FROM anggota
+        WHERE ${activeAnggotaCondition}
+          AND tanggal_lahir IS NOT NULL
+          AND MONTH(tanggal_lahir) = MONTH(CURDATE())
+        ORDER BY DAY(tanggal_lahir) ASC, nama ASC
+      `),
     ]);
 
     // estimate total iuran bulan ini
@@ -238,6 +261,7 @@ export async function GET() {
       pensiun_anggota: pensiunList,
       unit_dist: unitDist,
       kegiatan_history: kegiatanHistory,
+      ulang_tahun_bulan_ini: ulangTahunBulanIni,
       attendance_highlights: {
         lebih_awal: {
           istri_karyawan: lebihAwalIstriKaryawan,

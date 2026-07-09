@@ -54,6 +54,16 @@ interface PensiunAnggota {
   tanggal_pensiun: string;
 }
 
+interface BirthdayAnggota {
+  id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  status: string;
+  tanggal_lahir: string;
+}
+
 interface UnitDist {
   unit: string;
   total: number;
@@ -88,6 +98,7 @@ interface DashboardData {
   pensiun_anggota: PensiunAnggota[];
   unit_dist: UnitDist[];
   kegiatan_history: KegiatanHistory[];
+  ulang_tahun_bulan_ini: BirthdayAnggota[];
   attendance_highlights: {
     lebih_awal: {
       istri_karyawan: AttendanceHighlightItem[];
@@ -106,6 +117,9 @@ const formatRp = (n: number) =>
 
 const formatTanggal = (s: string) =>
   new Date(s).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+
+const formatTanggalUlangTahun = (s: string) =>
+  new Date(s).toLocaleDateString("id-ID", { day: "numeric", month: "long" });
 
 const formatWaktu = (s: string) =>
   new Date(s).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
@@ -359,6 +373,66 @@ export default function DashboardPage() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </section>
+        )}
+
+        {!loading && (
+          <section>
+            <Card>
+              <div className="p-5 border-b border-outline-variant flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-h3 text-h3 text-on-surface">Ulang Tahun Bulan Ini</h2>
+                  <p className="text-body-sm text-on-surface-variant mt-0.5">
+                    Daftar anggota aktif yang berulang tahun pada bulan {BULAN_FULL[now.getMonth()]}.
+                  </p>
+                </div>
+                <Badge label={`${data?.ulang_tahun_bulan_ini?.length ?? 0} orang`} variant="info" />
+              </div>
+              <div className="p-5">
+                {(data?.ulang_tahun_bulan_ini ?? []).length === 0 ? (
+                  <p className="text-body-sm text-on-surface-variant">
+                    Tidak ada anggota yang berulang tahun pada bulan {BULAN_FULL[now.getMonth()]}.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    {(data?.ulang_tahun_bulan_ini ?? []).map((anggota) => (
+                      <Link
+                        key={anggota.id}
+                        href={`/keanggotaan/${anggota.id}`}
+                        className="flex items-start gap-4 rounded-xl border border-outline-variant bg-surface-container-low p-4 hover:border-primary/40 hover:shadow-sm transition-all"
+                      >
+                        <div className="w-14 h-14 rounded-2xl bg-secondary-fixed text-secondary flex flex-col items-center justify-center shrink-0">
+                          <span className="text-[10px] font-bold uppercase leading-none">
+                            {BULAN_FULL[new Date(anggota.tanggal_lahir).getMonth()]?.slice(0, 3)}
+                          </span>
+                          <span className="text-xl font-bold leading-tight">
+                            {new Date(anggota.tanggal_lahir).getDate()}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-body-md font-semibold text-on-surface truncate">{anggota.nama}</p>
+                              <p className="text-label-sm text-on-surface-variant truncate">{anggota.jabatan} · {anggota.unit_kerja}</p>
+                            </div>
+                            <div className="shrink-0">
+                              {statusAnggotaBadge(anggota.status)}
+                            </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-on-surface-variant">
+                            <span className="font-mono">{anggota.nip}</span>
+                            <span className="inline-flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[14px]">cake</span>
+                              {formatTanggalUlangTahun(anggota.tanggal_lahir)}
+                            </span>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
                   </div>
                 )}
               </div>

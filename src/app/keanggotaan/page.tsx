@@ -106,6 +106,7 @@ export default function KeanggotaanPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [totalAktif, setTotalAktif] = useState(0);
   const [totalAktifIstriKaryawan, setTotalAktifIstriKaryawan] = useState(0);
   const [totalAktifKaryawati, setTotalAktifKaryawati] = useState(0);
@@ -290,6 +291,42 @@ export default function KeanggotaanPage() {
     window.location.href = `/api/anggota/export?${params.toString()}`;
   };
 
+  const handlePrintPdf = async () => {
+    const params = new URLSearchParams();
+
+    if (search) params.set("search", search);
+    if (filterStatus) params.set("status", filterStatus);
+    if (filterUnit) params.set("unit", filterUnit);
+    if (filterJenis) params.set("jenis", filterJenis);
+
+    setDownloadingPdf(true);
+    try {
+      const res = await fetch(`/api/anggota/pdf?${params.toString()}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error ?? "Gagal mengunduh PDF data anggota");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const contentDisposition = res.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+      const filename = filenameMatch?.[1] ?? `data-anggota-${new Date().toISOString().slice(0, 10)}.pdf`;
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Gagal mengunduh PDF data anggota", "error");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
@@ -432,6 +469,9 @@ export default function KeanggotaanPage() {
             </Button>
             <Button variant="outline" icon="download" onClick={handleExportData} disabled={loading || total === 0} className="min-w-[160px] justify-center">
               Ekspor Data
+            </Button>
+            <Button variant="outline" icon="picture_as_pdf" onClick={() => void handlePrintPdf()} disabled={loading || total === 0 || downloadingPdf} className="min-w-[160px] justify-center">
+              {downloadingPdf ? "Mengunduh PDF..." : "Cetak PDF"}
             </Button>
             {isAdmin && (
               <Button icon="person_add" size="lg" onClick={() => setModal("add")} className="min-w-[180px] justify-center">
