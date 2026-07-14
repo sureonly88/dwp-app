@@ -24,6 +24,8 @@ interface AnggotaPdfRow extends RowDataPacket {
   nip: string;
   status: "Aktif" | "Non-Aktif" | "Cuti";
   status_keanggotaan: StatusKeanggotaan;
+  no_hp: string | null;
+  email: string | null;
   tanggal_lahir: string | null;
   tanggal_pensiun: string | null;
 }
@@ -54,6 +56,16 @@ function formatFilterValue(value: string, fallback = "Semua") {
   return normalized ? normalized : fallback;
 }
 
+function buildKontakHtml(row: Pick<AnggotaPdfRow, "no_hp" | "email">) {
+  const kontakItems = [row.no_hp, row.email]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .map((value) => `<div class="contact-line">${escHtml(value)}</div>`);
+
+  return kontakItems.length > 0
+    ? kontakItems.join("")
+    : '<span class="contact-empty">-</span>';
+}
+
 // GET /api/anggota/pdf?search=&status=&unit=&jenis=&statusKeanggotaan=
 export async function GET(req: NextRequest) {
   try {
@@ -78,7 +90,7 @@ export async function GET(req: NextRequest) {
     const [rows] = await pool.execute<AnggotaPdfRow[]>(
       `SELECT nama, nip,
               ${effectiveStatusSql} AS status,
-              status_keanggotaan, tanggal_lahir, tanggal_pensiun
+              status_keanggotaan, no_hp, email, tanggal_lahir, tanggal_pensiun
        FROM anggota ${where}
        ORDER BY created_at DESC`,
       params,
@@ -185,13 +197,14 @@ function buildHtml(args: {
         <td>${escHtml(row.nama)}</td>
         <td>${escHtml(row.nip)}</td>
         <td>${escHtml(row.status_keanggotaan)}</td>
+        <td>${buildKontakHtml(row)}</td>
         <td class="center">${escHtml(formatTanggalSingkat(row.tanggal_lahir))}</td>
         <td class="center">${escHtml(formatTanggalSingkat(row.tanggal_pensiun))}</td>
       </tr>
     `).join("")
     : `
       <tr>
-        <td colspan="6" class="empty">Tidak ada data anggota yang sesuai filter.</td>
+        <td colspan="7" class="empty">Tidak ada data anggota yang sesuai filter.</td>
       </tr>
     `;
 
@@ -306,12 +319,19 @@ function buildHtml(args: {
       border-bottom: 1px solid #e5e7eb;
       padding: 8px 7px;
       vertical-align: top;
+      word-break: break-word;
     }
     tbody tr {
       page-break-inside: avoid;
     }
     tbody tr:nth-child(even) {
       background: #fafafa;
+    }
+    .contact-line + .contact-line {
+      margin-top: 2px;
+    }
+    .contact-empty {
+      color: #6b7280;
     }
     .center { text-align: center; }
     .empty {
@@ -379,11 +399,12 @@ function buildHtml(args: {
       <thead>
         <tr>
           <th class="center" style="width:45px;">No</th>
-          <th>Nama</th>
-          <th style="width:130px;">NIP</th>
-          <th style="width:130px;">Status Keanggotaan</th>
-          <th class="center" style="width:95px;">Tgl Lahir</th>
-          <th class="center" style="width:95px;">Tgl Pensiun</th>
+          <th style="width:160px;">Nama</th>
+          <th style="width:120px;">NIP</th>
+          <th style="width:120px;">Status Keanggotaan</th>
+          <th style="width:160px;">Kontak</th>
+          <th class="center" style="width:80px;">Tgl Lahir</th>
+          <th class="center" style="width:80px;">Tgl Pensiun</th>
         </tr>
       </thead>
       <tbody>
