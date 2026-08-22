@@ -22,7 +22,14 @@ interface AnggotaSuggest {
   nip: string;
   jabatan: string;
   unit_kerja: string;
+  no_hp: string | null;
   sudah_hadir: 0 | 1;
+}
+
+interface UnitKerjaOption {
+  id: number;
+  nama: string;
+  aktif?: number;
 }
 
 function formatTanggal(dateStr: string) {
@@ -32,6 +39,11 @@ function formatTanggal(dateStr: string) {
 function formatJam(t: string | null) { return t ? t.slice(0, 5) : ""; }
 function getInitials(nama: string) {
   return nama.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+}
+function withCurrentUnitKerja(options: UnitKerjaOption[], current: string) {
+  const unitKerja = current.trim();
+  if (!unitKerja || options.some((option) => option.nama === unitKerja)) return options;
+  return [{ id: -1, nama: unitKerja, aktif: 1 }, ...options];
 }
 
 interface CameraErrorState {
@@ -124,6 +136,9 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
   const [suggest, setSuggest] = useState<AnggotaSuggest[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [selected, setSelected] = useState<AnggotaSuggest | null>(null);
+  const [anggotaNoHp, setAnggotaNoHp] = useState("");
+  const [unitOptions, setUnitOptions] = useState<UnitKerjaOption[]>([]);
+  const [anggotaUnitKerja, setAnggotaUnitKerja] = useState("");
 
   // Selfie
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -175,6 +190,20 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat data kegiatan publik saat halaman presensi dibuka.
     refreshKegiatan().finally(() => setLoading(false));
   }, [refreshKegiatan]);
+
+  useEffect(() => {
+    const loadUnitKerja = async () => {
+      try {
+        const res = await fetch(`/api/presensi/${code}/unit-kerja`);
+        const json = await res.json();
+        if (res.ok) setUnitOptions(Array.isArray(json.data) ? json.data : []);
+      } catch {
+        setUnitOptions([]);
+      }
+    };
+
+    loadUnitKerja();
+  }, [code]);
 
   // Live search debounced
   useEffect(() => {
@@ -318,6 +347,8 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
       return;
     }
     setSelected(a);
+    setAnggotaNoHp(a.no_hp ?? "");
+    setAnggotaUnitKerja(a.unit_kerja);
     setStep("selfie");
   };
 
@@ -344,7 +375,12 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
         const res = await fetch(`/api/presensi/${code}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ anggota_id: selected.id, foto: photoData }),
+          body: JSON.stringify({
+            anggota_id: selected.id,
+            foto: photoData,
+            no_hp: anggotaNoHp.trim() || undefined,
+            unit_kerja: anggotaUnitKerja.trim() || selected.unit_kerja,
+          }),
         });
         const json = await res.json();
         if (res.status === 201) {
@@ -376,6 +412,8 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
     setQuery("");
     setSuggest([]);
     setSelected(null);
+    setAnggotaNoHp("");
+    setAnggotaUnitKerja("");
     setPhotoData(null);
     setResult(null);
     setStep("search");
@@ -658,7 +696,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                   <p className="text-[11px] text-on-surface-variant">{selected.jabatan} · {selected.unit_kerja}</p>
                 </div>
                 <button
-                  onClick={() => { setSelected(null); setPhotoData(null); stopCamera(); setStep("search"); }}
+                  onClick={() => { setSelected(null); setAnggotaNoHp(""); setAnggotaUnitKerja(""); setPhotoData(null); stopCamera(); setStep("search"); }}
                   className="text-primary text-label-sm hover:underline flex-shrink-0"
                 >
                   Ganti
@@ -679,6 +717,42 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                 >
                   Ganti
                 </button>
+              </div>
+            )}
+
+            {presType === "anggota" && selected && (
+              <div className="mb-3 flex flex-col gap-3">
+                <div>
+                  <label className="text-label-sm text-on-surface-variant mb-1 block">
+                    Unit kerja anggota
+                  </label>
+                  <select
+                    value={anggotaUnitKerja}
+                    onChange={(e) => setAnggotaUnitKerja(e.target.value)}
+                    className="w-full px-4 py-3 border border-outline-variant rounded-xl text-body-md bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface"
+                  >
+                    {withCurrentUnitKerja(unitOptions, anggotaUnitKerja || selected.unit_kerja).map((option) => (
+                      <option key={`${option.id}-${option.nama}`} value={option.nama}>
+                        {option.nama}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-label-sm text-on-surface-variant mb-1 block">
+                    No. telepon anggota <span className="text-on-surface-variant">(opsional)</span>
+                  </label>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    value={anggotaNoHp}
+                    onChange={(e) => setAnggotaNoHp(e.target.value)}
+                    maxLength={20}
+                    placeholder="08xxxxxxxxxx"
+                    className="w-full px-4 py-3 border border-outline-variant rounded-xl text-body-md bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface"
+                  />
+                </div>
               </div>
             )}
 
@@ -772,7 +846,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                   {submitting ? (
                     <><span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span> Mengirim...</>
                   ) : (
-                    <><span className="material-symbols-outlined text-[20px]">how_to_reg</span> Catat Kehadiran</>
+                    <><span className="material-symbols-outlined text-[20px]">how_to_reg</span> Simpan Kehadiran</>
                   )}
                 </button>
               </div>

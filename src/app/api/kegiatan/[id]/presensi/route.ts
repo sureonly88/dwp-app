@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import type { PoolConnection } from "mysql2/promise";
 import { requireAdmin } from "@/lib/admin-auth";
 import { buildCurrentActiveCondition, buildEffectiveStatusSql, ensureAnggotaSchema } from "@/lib/anggota";
+import { normalizeNoHp } from "@/lib/no-hp";
+import { isUnitKerjaTerdaftar, normalizeUnitKerja } from "@/lib/unit-kerja";
 
 interface PresensiRow extends RowDataPacket {
   id: number;
@@ -52,17 +55,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-// POST /api/kegiatan/[id]/presensi  body: { anggota_id?, nip?, metode?, catatan?, foto? }
+// POST /api/kegiatan/[id]/presensi  body: { anggota_id?, nip?, metode?, catatan?, no_hp?, unit_kerja?, foto? }
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  let conn: PoolConnection | undefined;
   try {
     const { response } = await requireAdmin(req);
     if (response) return response;
     const { id } = await params;
     const body = await req.json();
     const { anggota_id, nip, metode, catatan } = body;
+    const normalizedNoHp = normalizeNoHp(body.no_hp);
+    const normalizedUnitKerja = normalizeUnitKerja(body.unit_kerja);
     const foto: string | null = typeof body.foto === "string" && body.foto.startsWith("data:image/") ? body.foto : null;
     if (foto && foto.length > 900_000) {
       return NextResponse.json({ error: "Ukuran foto terlalu besar (maks ~700KB)" }, { status: 413 });
+    }
+    if (normalizedNoHp.error) {
+      return NextResponse.json({ error: normalizedNoHp.error }, { status: 400 });
+    }
+    if (normalizedUnitKerja.error) {
+      return NextResponse.json({ error: normalizedUnitKerja.error }, { status: 400 });
     }
 
     if (!anggota_id && !nip) {
@@ -84,10 +96,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Resolve anggota
     let resolvedId: number | null = anggota_id ?? null;
     let nama = "";
+    let currentUnitKerja = "";
     const effectiveStatusSql = buildEffectiveStatusSql();
     if (!resolvedId) {
       const [a] = await pool.execute<RowDataPacket[]>(
-        `SELECT id, nama, ${effectiveStatusSql} AS status FROM anggota WHERE nip = ? LIMIT 1`,
+        `SELECT id, nama, unit_kerja, ${effectiveStatusSql} AS status FROM anggota WHERE nip = ? LIMIT 1`,
         [nip]
       );
       if (a.length === 0) {
@@ -98,9 +111,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
       resolvedId = (a[0] as { id: number }).id;
       nama = (a[0] as { nama: string }).nama;
+      currentUnitKerja = (a[0] as { unit_kerja: string }).unit_kerja;
     } else {
       const [a] = await pool.execute<RowDataPacket[]>(
-        `SELECT nama, ${effectiveStatusSql} AS status FROM anggota WHERE id = ? LIMIT 1`,
+        `SELECT nama, unit_kerja, ${effectiveStatusSql} AS status FROM anggota WHERE id = ? LIMIT 1`,
         [resolvedId]
       );
       if (a.length === 0) {
@@ -110,19 +124,51 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: "Anggota berstatus Non-Aktif tidak dapat dicatat hadir sebagai anggota DWP" }, { status: 400 });
       }
       nama = (a[0] as { nama: string }).nama;
+      currentUnitKerja = (a[0] as { unit_kerja: string }).unit_kerja;
+    }
+    if (
+      normalizedUnitKerja.value &&
+      normalizedUnitKerja.value !== currentUnitKerja &&
+      !(await isUnitKerjaTerdaftar(normalizedUnitKerja.value))
+    ) {
+      return NextResponse.json({ error: "Unit kerja tidak terdaftar" }, { status: 400 });
     }
 
     try {
-      const [result] = await pool.execute<ResultSetHeader>(
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      const [result] = await conn.execute<ResultSetHeader>(
         `INSERT INTO presensi (kegiatan_id, anggota_id, metode, catatan, foto)
          VALUES (?, ?, ?, ?, ?)`,
         [id, resolvedId, metode === "Manual" ? "Manual" : "QR", catatan ?? null, foto]
       );
+
+      const updateFields: string[] = [];
+      const updateParams: string[] = [];
+      if (normalizedNoHp.value) {
+        updateFields.push("no_hp = ?");
+        updateParams.push(normalizedNoHp.value);
+      }
+      if (normalizedUnitKerja.value && normalizedUnitKerja.value !== currentUnitKerja) {
+        updateFields.push("unit_kerja = ?");
+        updateParams.push(normalizedUnitKerja.value);
+      }
+      if (updateFields.length > 0) {
+        await conn.execute(
+          `UPDATE anggota SET ${updateFields.join(", ")} WHERE id = ?`,
+          [...updateParams, resolvedId]
+        );
+      }
+
+      await conn.commit();
+
       return NextResponse.json(
         { id: result.insertId, anggota_id: resolvedId, nama, message: `Kehadiran ${nama} tercatat` },
         { status: 201 }
       );
     } catch (e: unknown) {
+      if (conn) await conn.rollback();
       if ((e as { code?: string }).code === "ER_DUP_ENTRY") {
         return NextResponse.json(
           { error: `${nama} sudah tercatat hadir sebelumnya`, duplicate: true },
@@ -134,6 +180,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Gagal mencatat kehadiran" }, { status: 500 });
+  } finally {
+    conn?.release();
   }
 }
 

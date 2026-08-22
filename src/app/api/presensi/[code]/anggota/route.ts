@@ -29,7 +29,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
 
     // Return anggota with attendance flag for this kegiatan
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja,
+      `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja, a.no_hp,
               EXISTS(SELECT 1 FROM presensi p WHERE p.kegiatan_id = ? AND p.anggota_id = a.id) AS sudah_hadir
        FROM anggota a
        WHERE ${effectiveStatusSql} <> 'Non-Aktif' AND (a.nama LIKE ? OR a.nip LIKE ?)

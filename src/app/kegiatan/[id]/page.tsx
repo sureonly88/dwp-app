@@ -44,6 +44,13 @@ interface AnggotaSuggest {
   nip: string;
   jabatan: string;
   unit_kerja: string;
+  no_hp: string | null;
+}
+
+interface UnitKerjaOption {
+  id: number;
+  nama: string;
+  aktif?: number;
 }
 
 interface TamuItem {
@@ -75,6 +82,11 @@ function matchesPresensiSearch(item: PresensiItem, query: string) {
   const keyword = query.trim().toLowerCase();
   if (!keyword) return true;
   return item.nama.toLowerCase().includes(keyword) || item.nip.includes(query.trim());
+}
+function withCurrentUnitKerja(options: UnitKerjaOption[], current: string) {
+  const unitKerja = current.trim();
+  if (!unitKerja || options.some((option) => option.nama === unitKerja)) return options;
+  return [{ id: -1, nama: unitKerja, aktif: 1 }, ...options];
 }
 function buildCompactPageItems(totalPages: number, currentPage: number) {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -168,6 +180,10 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   }, []);
 
   const [manualQuery, setManualQuery] = useState("");
+  const [manualSelected, setManualSelected] = useState<AnggotaSuggest | null>(null);
+  const [manualNoHp, setManualNoHp] = useState("");
+  const [manualUnitKerja, setManualUnitKerja] = useState("");
+  const [unitOptions, setUnitOptions] = useState<UnitKerjaOption[]>([]);
   const [suggest, setSuggest] = useState<AnggotaSuggest[]>([]);
   const [adding, setAdding] = useState(false);
 
@@ -190,6 +206,21 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   // Tracks IDs already in state — used by SSE handler to deduplicate rows
   // that were already fetched by fetchPresensi() after a manual add.
   const seenPresensiIdsRef = useRef<Set<number>>(new Set());
+
+  const resetManualAnggota = () => {
+    setManualQuery("");
+    setManualSelected(null);
+    setManualNoHp("");
+    setManualUnitKerja("");
+    setSuggest([]);
+  };
+
+  useEffect(() => {
+    fetch("/api/unit-kerja")
+      .then((r) => r.json())
+      .then((data: UnitKerjaOption[]) => setUnitOptions(Array.isArray(data) ? data : []))
+      .catch(() => setUnitOptions([]));
+  }, []);
 
   const fetchKegiatan = useCallback(async () => {
     try {
@@ -339,7 +370,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
 
   // Anggota search suggestions for manual add
   useEffect(() => {
-    if (!manualQuery.trim()) {
+    if (!manualQuery.trim() || manualSelected) {
       return;
     }
     const t = setTimeout(async () => {
@@ -353,7 +384,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
       } catch { /* ignore */ }
     }, 250);
     return () => clearTimeout(t);
-  }, [manualQuery]);
+  }, [manualQuery, manualSelected]);
 
   const handleAddTamu = async () => {
     if (!tamuNama.trim()) return;
@@ -395,21 +426,34 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     }
   };
 
-  const handleAddManual = async (a: AnggotaSuggest) => {
+  const handleSelectManual = (a: AnggotaSuggest) => {
+    setManualSelected(a);
+    setManualQuery(a.nama);
+    setManualNoHp(a.no_hp ?? "");
+    setManualUnitKerja(a.unit_kerja);
+    setSuggest([]);
+  };
+
+  const handleAddManual = async () => {
+    if (!manualSelected) return;
     setAdding(true);
     try {
       const res = await fetch(`/api/kegiatan/${id}/presensi`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ anggota_id: a.id, metode: "Manual" }),
+        body: JSON.stringify({
+          anggota_id: manualSelected.id,
+          metode: "Manual",
+          no_hp: manualNoHp.trim() || undefined,
+          unit_kerja: manualUnitKerja.trim() || manualSelected.unit_kerja,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
         showToast(json.error ?? "Gagal mencatat", "error");
       } else {
-        showToast(`Kehadiran ${a.nama} tercatat`);
-        setManualQuery("");
-        setSuggest([]);
+        showToast(`Kehadiran ${manualSelected.nama} tercatat`);
+        resetManualAnggota();
         fetchPresensi();
         fetchKegiatan();
       }
@@ -814,7 +858,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                 Catat kehadiran anggota DWP atau tamu non-anggota secara manual.
               </p>
               <button
-                onClick={() => { setAddModal(true); setAddTab("anggota"); }}
+                onClick={() => { resetManualAnggota(); setAddModal(true); setAddTab("anggota"); }}
                 className="w-full py-2.5 bg-primary text-on-primary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-primary-container transition-colors"
               >
                 <span className="material-symbols-outlined text-[18px]">add</span>
@@ -1170,7 +1214,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
       </div>
 
       {addModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => { setAddModal(false); setManualQuery(""); setSuggest([]); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => { setAddModal(false); resetManualAnggota(); }}>
           <div className="bg-surface-container-lowest rounded-2xl shadow-2xl w-full max-w-md border border-outline-variant flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="p-5 border-b border-outline-variant flex items-center justify-between flex-shrink-0">
@@ -1179,7 +1223,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                 <p className="text-body-sm text-on-surface-variant mt-0.5">{kegiatan?.judul}</p>
               </div>
               <button
-                onClick={() => { setAddModal(false); setManualQuery(""); setSuggest([]); }}
+                onClick={() => { setAddModal(false); resetManualAnggota(); }}
                 className="p-2 rounded-lg text-on-surface-variant hover:bg-surface-container"
               >
                 <span className="material-symbols-outlined">close</span>
@@ -1218,6 +1262,9 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                       onChange={(e) => {
                         const value = e.target.value;
                         setManualQuery(value);
+                        setManualSelected(null);
+                        setManualNoHp("");
+                        setManualUnitKerja("");
                         if (!value.trim()) setSuggest([]);
                       }}
                       placeholder="Cari nama atau NIP anggota..."
@@ -1230,7 +1277,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                         <button
                           key={a.id}
                           disabled={adding}
-                          onClick={() => handleAddManual(a)}
+                          onClick={() => handleSelectManual(a)}
                           className="w-full text-left px-4 py-2.5 hover:bg-surface-container-low border-b border-outline-variant last:border-b-0 disabled:opacity-50 transition-colors"
                         >
                           <div className="font-label-md text-label-md text-on-surface">{a.nama}</div>
@@ -1239,12 +1286,64 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                       ))}
                     </div>
                   )}
-                  {manualQuery && !adding && suggest.length === 0 && (
+                  {manualQuery && !manualSelected && !adding && suggest.length === 0 && (
                     <p className="text-body-sm text-on-surface-variant text-center mt-4 py-2">Tidak ada anggota ditemukan.</p>
                   )}
-                  <p className="text-[11px] text-on-surface-variant mt-3">
-                    Pilih anggota dari hasil pencarian untuk mencatat presensi secara manual.
-                  </p>
+                  {manualSelected && (
+                    <div className="mt-3 flex flex-col gap-3">
+                      <div className="bg-primary-fixed/30 border border-primary-fixed-dim rounded-lg p-3">
+                        <p className="font-label-md text-label-md text-on-surface">{manualSelected.nama}</p>
+                        <p className="text-[11px] text-on-surface-variant">{manualSelected.jabatan} · {manualSelected.unit_kerja}</p>
+                        <p className="text-[10px] text-on-surface-variant font-mono mt-0.5">{manualSelected.nip}</p>
+                      </div>
+                      <div>
+                        <label className="text-label-sm text-on-surface-variant mb-1 block">Unit kerja anggota</label>
+                        <select
+                          value={manualUnitKerja}
+                          onChange={(e) => setManualUnitKerja(e.target.value)}
+                          className="w-full px-3 py-2.5 border border-outline-variant rounded-lg text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface"
+                        >
+                          {withCurrentUnitKerja(unitOptions, manualUnitKerja || manualSelected.unit_kerja).map((option) => (
+                            <option key={`${option.id}-${option.nama}`} value={option.nama}>
+                              {option.nama}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-label-sm text-on-surface-variant mb-1 block">
+                          No. telepon anggota <span className="text-on-surface-variant">(opsional)</span>
+                        </label>
+                        <input
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          value={manualNoHp}
+                          onChange={(e) => setManualNoHp(e.target.value)}
+                          maxLength={20}
+                          placeholder="08xxxxxxxxxx"
+                          className="w-full px-3 py-2.5 border border-outline-variant rounded-lg text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface"
+                        />
+                      </div>
+                      <button
+                        onClick={handleAddManual}
+                        disabled={adding}
+                        className="w-full py-2.5 bg-primary text-on-primary rounded-lg font-label-md flex items-center justify-center gap-2 hover:bg-primary-container disabled:opacity-50 transition-colors"
+                      >
+                        {adding ? (
+                          <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                        ) : (
+                          <span className="material-symbols-outlined text-[18px]">how_to_reg</span>
+                        )}
+                        Simpan Kehadiran
+                      </button>
+                    </div>
+                  )}
+                  {!manualSelected && (
+                    <p className="text-[11px] text-on-surface-variant mt-3">
+                      Pilih anggota dari hasil pencarian untuk mengisi unit kerja dan mencatat presensi secara manual.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
