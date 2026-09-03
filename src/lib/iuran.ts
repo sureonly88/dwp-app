@@ -108,11 +108,12 @@ async function buildLaporanIuranBase(filter: LaporanFilters): Promise<LaporanBas
   // Filter SQL
   const where: string[] = [
     "join_date <= ?",
-    "(tanggal_keluar IS NULL OR tanggal_keluar >= ?)",
+    // Hanya anggota yang masih aktif melewati akhir periode yang dihitung.
+    "(tanggal_keluar IS NULL OR tanggal_keluar > ?)",
     // Anggota Non-Aktif tanpa tanggal_keluar dianggap keluar dari semua periode
     "(status <> 'Non-Aktif' OR tanggal_keluar IS NOT NULL)",
   ];
-  const params: (string | number)[] = [periodEnd, periodStart];
+  const params: (string | number)[] = [periodEnd, periodEnd];
 
   if (filter.unit) {
     where.push("unit_kerja = ?");
@@ -152,11 +153,10 @@ async function buildLaporanIuranBase(filter: LaporanFilters): Promise<LaporanBas
     const iuranKonsumsiAnggota = nominalKonsumsiAnggota;
     const iuranPengurus = isPengurus ? nominalPengurus : 0;
     const total = iuranAnggota + iuranKonsumsiAnggota + iuranPengurus;
-    const keluarBulanIni =
+    const keluarSetelahPeriode =
       r.tanggal_keluar &&
-      String(r.tanggal_keluar) >= periodStart &&
-      String(r.tanggal_keluar) <= periodEnd;
-    const keterangan = keluarBulanIni
+      String(r.tanggal_keluar) > periodEnd;
+    const keterangan = keluarSetelahPeriode
       ? `Keluar ${String(r.tanggal_keluar).slice(0, 10)}`
       : r.status;
 

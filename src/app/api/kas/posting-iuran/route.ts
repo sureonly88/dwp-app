@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
 }
 
 // ============================================================================
-// POST /api/kas/posting-iuran  body: { bulan, tahun, jenis: 'anggota' | 'konsumsi' | 'pengurus' | 'both' }
+// POST /api/kas/posting-iuran  body: { bulan, tahun, tanggal?, jenis: 'anggota' | 'konsumsi' | 'pengurus' | 'both' }
 // Membuat transaksi kas pemasukan rekap (bukan per anggota).
 // Idempotent: jika sudah pernah posting (uniq source_type+source_id), tolak.
 // ============================================================================
@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const bulan = Math.max(1, Math.min(12, Number(body.bulan)));
     const tahun = Math.max(2000, Number(body.tahun));
+    const tanggal = typeof body.tanggal === "string" ? body.tanggal : "";
     const jenis = body.jenis as "anggota" | "konsumsi" | "pengurus" | "both";
 
     if (!Number.isFinite(bulan) || !Number.isFinite(tahun)) {
@@ -82,7 +83,11 @@ export async function POST(req: NextRequest) {
     const lap = await getLaporanIuran({ bulan, tahun });
     const ym = `${tahun}-${String(bulan).padStart(2, "0")}`;
     const lastDay = new Date(tahun, bulan, 0).getDate();
-    const trxDate = `${ym}-${String(lastDay).padStart(2, "0")}`;
+    const defaultTrxDate = `${ym}-${String(lastDay).padStart(2, "0")}`;
+    const trxDate = tanggal || defaultTrxDate;
+    if (!isValidPostingDate(trxDate, tahun, bulan, lastDay)) {
+      return NextResponse.json({ error: "Tanggal posting harus berada dalam bulan/tahun periode iuran" }, { status: 400 });
+    }
 
     // Cari kategori sistem
     await ensureIuranKasCategory();
@@ -161,4 +166,14 @@ async function ensureIuranKasCategory() {
         SET name='Iuran Arisan Anggota', description='Posting rekap iuran arisan anggota dari modul Iuran'
       WHERE code='IURAN_ANGGOTA'`
   );
+}
+
+function isValidPostingDate(value: string, tahun: number, bulan: number, lastDay: number) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return year === tahun && month === bulan && day >= 1 && day <= lastDay;
 }

@@ -23,11 +23,18 @@ interface ExistingPost { id: number; transaction_number: string; status: string;
 
 const fmt = (n: number) => "Rp " + (n ?? 0).toLocaleString("id-ID");
 const MONTHS = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const getMonthEndDate = (bulan: number, tahun: number) => {
+  const lastDay = new Date(tahun, bulan, 0).getDate();
+  return `${tahun}-${pad2(bulan)}-${pad2(lastDay)}`;
+};
+const getMonthStartDate = (bulan: number, tahun: number) => `${tahun}-${pad2(bulan)}-01`;
 
 export default function PostingIuranPage() {
   const now = new Date();
   const [bulan, setBulan] = useState(now.getMonth() + 1);
   const [tahun, setTahun] = useState(now.getFullYear());
+  const [tanggalPosting, setTanggalPosting] = useState(() => getMonthEndDate(now.getMonth() + 1, now.getFullYear()));
   const [data, setData] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
@@ -48,15 +55,30 @@ export default function PostingIuranPage() {
     } catch { setFetchError(true); } finally { setLoading(false); }
   }, [bulan, tahun]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
+  const handleBulanChange = (value: number) => {
+    setBulan(value);
+    setTanggalPosting(getMonthEndDate(value, tahun));
+  };
+
+  const handleTahunChange = (value: number) => {
+    setTahun(value);
+    setTanggalPosting(getMonthEndDate(bulan, value));
+  };
+
   const post = async (jenis: "anggota" | "konsumsi" | "pengurus" | "both") => {
-    if (!confirm(`Posting iuran ${jenis} untuk ${MONTHS[bulan-1]} ${tahun}?`)) return;
+    if (!tanggalPosting) {
+      showToast("Tanggal posting wajib diisi", "error");
+      return;
+    }
+    if (!confirm(`Posting iuran ${jenis} untuk ${MONTHS[bulan-1]} ${tahun} pada ${tanggalPosting}?`)) return;
     setPosting(true);
     try {
       const res = await fetch("/api/kas/posting-iuran", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bulan, tahun, jenis }),
+        body: JSON.stringify({ bulan, tahun, jenis, tanggal: tanggalPosting }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -83,15 +105,22 @@ export default function PostingIuranPage() {
 
         <Card className="p-6">
           <div className="flex flex-wrap items-end gap-3 mb-4">
+            <label className="text-label-sm text-on-surface-variant">Tanggal
+              <input type="date" value={tanggalPosting}
+                min={getMonthStartDate(bulan, tahun)}
+                max={getMonthEndDate(bulan, tahun)}
+                onChange={(e) => setTanggalPosting(e.target.value)}
+                className="mt-1 block px-3 py-2.5 border border-outline-variant rounded-lg bg-surface text-body-sm text-on-surface focus:border-primary focus:outline-none" />
+            </label>
             <label className="text-label-sm text-on-surface-variant">Bulan
-              <select value={bulan} onChange={(e) => setBulan(Number(e.target.value))}
+              <select value={bulan} onChange={(e) => handleBulanChange(Number(e.target.value))}
                 style={{ paddingTop: '10px', paddingBottom: '10px' }}
                 className="mt-1 block appearance-none px-3 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none text-on-surface">
                 {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
               </select>
             </label>
             <label className="text-label-sm text-on-surface-variant">Tahun
-              <input type="number" value={tahun} min={2000} max={2100} onChange={(e) => setTahun(Number(e.target.value))}
+              <input type="number" value={tahun} min={2000} max={2100} onChange={(e) => handleTahunChange(Number(e.target.value))}
                 className="mt-1 block px-3 py-2.5 border border-outline-variant rounded-lg bg-surface text-body-sm text-on-surface focus:border-primary focus:outline-none w-28" />
             </label>
             <button onClick={load} className="px-4 py-2 border border-outline-variant rounded-lg text-on-surface-variant hover:bg-surface-container">
