@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { ensureKasSourceFundColumn, getDanaIuranBalances, requireSession } from "@/lib/kas";
+import { ensureKasSourceFundColumn, getDanaIuranBalances, getSourceFundBalances, requireSession } from "@/lib/kas";
 import type { RowDataPacket } from "mysql2";
 
 const BULAN_LABELS = [
@@ -27,7 +27,9 @@ export async function GET(req: NextRequest) {
 
   await pool.execute(
     `INSERT IGNORE INTO cash_categories (code, name, type, is_system, description) VALUES
-      ('IURAN_KONSUMSI_ANGGOTA', 'Iuran Konsumsi Anggota', 'income', 1, 'Posting rekap iuran konsumsi anggota dari modul Iuran')`
+      ('IURAN_KONSUMSI_ANGGOTA', 'Iuran Konsumsi Anggota', 'income', 1, 'Posting rekap iuran konsumsi anggota dari modul Iuran'),
+      ('PENJUALAN_BARANG', 'Penjualan Barang', 'income', 1, 'Otomatis dari modul Penjualan'),
+      ('DONASI', 'Donasi', 'income', 0, 'Sumbangan dari donatur')`
   );
   await pool.execute(
     `UPDATE cash_categories
@@ -36,8 +38,10 @@ export async function GET(req: NextRequest) {
   );
 
   const reportableStatusSql = `t.status='approved'`;
+  const todayDate = new Date();
+  const today = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
 
-  const [[awal], catIncome, catExpense, daftar, danaIuran] = await Promise.all([
+  const [[awal], catIncome, catExpense, daftar, danaIuran, sourceFunds, sourceFundsAllTime] = await Promise.all([
     pool.execute<RowDataPacket[]>(
       `SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0)
             - COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS saldo_awal
@@ -80,12 +84,20 @@ export async function GET(req: NextRequest) {
       [monthStart, monthEnd]
     ).then(([r]) => r),
     getDanaIuranBalances({ from: monthStart, to: monthEnd }),
+    getSourceFundBalances({ from: monthStart, to: monthEnd }),
+    getSourceFundBalances({ to: today }),
   ]);
 
   const totalIncome = catIncome.reduce((s, r) => s + Number(r.total), 0);
   const totalExpense = catExpense.reduce((s, r) => s + Number(r.total), 0);
   const saldoAwal = Number(awal.saldo_awal);
   const saldoAkhir = saldoAwal + totalIncome - totalExpense;
+  const saldoDonasi = Number(sourceFundsAllTime.find((item) => item.code === "donasi")?.saldo_akhir ?? 0);
+  const saldoPenjualanBarang = Number(sourceFundsAllTime.find((item) => item.code === "penjualan_barang")?.saldo_akhir ?? 0);
+  const saldoIuranArisan = Number(sourceFundsAllTime.find((item) => item.code === "iuran_anggota")?.saldo_akhir ?? 0);
+  const saldoIuranKonsumsi = Number(sourceFundsAllTime.find((item) => item.code === "iuran_konsumsi_anggota")?.saldo_akhir ?? 0);
+  const saldoIuranPengurus = Number(sourceFundsAllTime.find((item) => item.code === "iuran_pengurus")?.saldo_akhir ?? 0);
+  const totalSaldoAkhir = saldoDonasi + saldoPenjualanBarang + saldoIuranArisan + saldoIuranKonsumsi + saldoIuranPengurus;
 
   return NextResponse.json({
     periode: {
@@ -99,6 +111,16 @@ export async function GET(req: NextRequest) {
     saldo_akhir: saldoAkhir,
     total_income: totalIncome,
     total_expense: totalExpense,
+    total_saldo_akhir: {
+      tanggal: today,
+      donasi: saldoDonasi,
+      penjualan_barang: saldoPenjualanBarang,
+      iuran_arisan: saldoIuranArisan,
+      iuran_konsumsi: saldoIuranKonsumsi,
+      iuran_pengurus: saldoIuranPengurus,
+      total: totalSaldoAkhir,
+    },
+    sumber_dana: sourceFunds,
     dana_iuran: danaIuran,
     rekap_pemasukan: catIncome.map((r) => ({ id: r.id, code: r.code, name: r.name, total: Number(r.total), jumlah: Number(r.jumlah) })),
     rekap_pengeluaran: catExpense.map((r) => ({ id: r.id, code: r.code, name: r.name, total: Number(r.total), jumlah: Number(r.jumlah) })),

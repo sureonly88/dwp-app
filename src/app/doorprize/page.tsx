@@ -18,6 +18,7 @@ interface Kegiatan {
 
 interface DoorprizeSetup {
   jumlah_hadiah: number;
+  jumlah_per_undi: number;
 }
 
 interface Winner {
@@ -122,6 +123,7 @@ export default function DoorprizePage() {
   // Setup modal
   const [setupOpen, setSetupOpen] = useState(false);
   const [draftJumlah, setDraftJumlah] = useState("1");
+  const [draftJumlahPerUndi, setDraftJumlahPerUndi] = useState("10");
   const [savingSetup, setSavingSetup] = useState(false);
 
   // Undian fullscreen modal
@@ -141,6 +143,8 @@ export default function DoorprizePage() {
   const [celebrating, setCelebrating] = useState(false);
   const [undiError, setUndiError] = useState<string | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [selectedWinnerIds, setSelectedWinnerIds] = useState<Set<number>>(() => new Set());
+  const [cancellingSelected, setCancellingSelected] = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const showToast = (msg: string, type: "success" | "error" = "success") => {
@@ -167,6 +171,7 @@ export default function DoorprizePage() {
     setDisplayName(null);
     setDisplayNames([]);
     setCelebrating(false);
+    setSelectedWinnerIds(new Set());
   }, []);
 
   const loadKegiatan = useCallback(async () => {
@@ -217,12 +222,18 @@ export default function DoorprizePage() {
       const res = await fetch(`/api/doorprize/${kegiatanId}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
+      const nextWinners: Winner[] = json.winners ?? [];
       setKegiatanInfo(json.kegiatan);
-      setSetup(json.setup ?? null);
-      setWinners(json.winners ?? []);
+      setSetup(json.setup ? { ...json.setup, jumlah_per_undi: Number(json.setup.jumlah_per_undi ?? 10) } : null);
+      setWinners(nextWinners);
+      setSelectedWinnerIds((current) => {
+        const availableWinnerIds = new Set(nextWinners.map((winner) => winner.id));
+        return new Set([...current].filter((winnerId) => availableWinnerIds.has(winnerId)));
+      });
       setHadirCount(json.hadir_count ?? null);
       setEligibleCount(json.eligible_count ?? null);
       setRollNames((json.roll_names ?? []).filter((nama: string) => typeof nama === "string" && nama.trim().length > 0));
+      setUndiError(null);
     } catch {
       showToast("Gagal memuat doorprize", "error");
     } finally {
@@ -242,6 +253,7 @@ export default function DoorprizePage() {
   // Setup modal
   const openSetup = () => {
     setDraftJumlah(setup ? String(setup.jumlah_hadiah) : "1");
+    setDraftJumlahPerUndi(setup ? String(setup.jumlah_per_undi ?? 10) : "10");
     setSetupOpen(true);
   };
 
@@ -253,16 +265,21 @@ export default function DoorprizePage() {
       showToast("Jumlah hadiah tidak valid", "error");
       return;
     }
+    const jumlahPerUndi = Number(draftJumlahPerUndi);
+    if (!Number.isInteger(jumlahPerUndi) || jumlahPerUndi < 1) {
+      showToast("Jumlah pemenang per pengundian tidak valid", "error");
+      return;
+    }
     setSavingSetup(true);
     try {
       const res = await fetch(`/api/doorprize/${selectedId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jumlah_hadiah: jumlah }),
+        body: JSON.stringify({ jumlah_hadiah: jumlah, jumlah_per_undi: jumlahPerUndi }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
-      setSetup({ jumlah_hadiah: json.jumlah_hadiah });
+      setSetup({ jumlah_hadiah: json.jumlah_hadiah, jumlah_per_undi: json.jumlah_per_undi });
       setSetupOpen(false);
       showToast("Setup doorprize disimpan");
     } catch (err) {
@@ -571,9 +588,67 @@ export default function DoorprizePage() {
       const res = await fetch(`/api/doorprize/${selectedId}/winner/${winnerId}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       showToast("Pemenang dibatalkan");
+      setSelectedWinnerIds((current) => {
+        const next = new Set(current);
+        next.delete(winnerId);
+        return next;
+      });
+      setLastWinners((current) => current.filter((winner) => winner.id !== winnerId));
       loadDetail(selectedId);
     } catch {
       showToast("Gagal membatalkan", "error");
+    }
+  };
+
+  const toggleWinnerSelection = (winnerId: number) => {
+    setSelectedWinnerIds((current) => {
+      const next = new Set(current);
+      if (next.has(winnerId)) {
+        next.delete(winnerId);
+      } else {
+        next.add(winnerId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllWinners = () => {
+    setSelectedWinnerIds(allWinnersSelected ? new Set() : new Set(winners.map((winner) => winner.id)));
+  };
+
+  const handleBatalkanSelectedWinners = async () => {
+    if (!selectedId || selectedWinnerIds.size === 0) return;
+
+    const selectedIds = new Set(selectedWinnerIds);
+    const selectedWinners = winners.filter((winner) => selectedIds.has(winner.id));
+    if (selectedWinners.length === 0) return;
+    if (!confirm(`Batalkan ${selectedWinners.length} pemenang terpilih?`)) return;
+
+    setCancellingSelected(true);
+    let deletedCount = 0;
+    try {
+      for (const winner of selectedWinners) {
+        const res = await fetch(`/api/doorprize/${selectedId}/winner/${winner.id}`, { method: "DELETE" });
+        if (!res.ok) {
+          const json = await res.json().catch(() => null);
+          throw new Error(json?.error ?? `Gagal membatalkan ${winner.nama}`);
+        }
+        deletedCount += 1;
+      }
+
+      showToast(`${selectedWinners.length} pemenang dibatalkan`);
+      setSelectedWinnerIds(new Set());
+      setLastWinners((current) => current.filter((winner) => !selectedIds.has(winner.id)));
+      loadDetail(selectedId);
+    } catch (e) {
+      showToast((e as Error).message ?? "Gagal membatalkan pemenang terpilih", "error");
+      if (deletedCount > 0) {
+        setSelectedWinnerIds(new Set());
+        setLastWinners((current) => current.filter((winner) => !selectedIds.has(winner.id)));
+        loadDetail(selectedId);
+      }
+    } finally {
+      setCancellingSelected(false);
     }
   };
 
@@ -602,7 +677,10 @@ export default function DoorprizePage() {
   };
 
   const isSlotFull = setup ? winners.length >= setup.jumlah_hadiah : false;
-  const canStart = spinState === "idle" && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
+  const selectedWinnerCount = selectedWinnerIds.size;
+  const allWinnersSelected = winners.length > 0 && selectedWinnerCount === winners.length;
+  const winnersPerDraw = setup?.jumlah_per_undi ?? 10;
+  const canStart = spinState === "idle" && !!setup && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
   const highlightedWinnerIds = new Set(lastWinners.map((winner) => winner.id));
 
   return (
@@ -631,7 +709,7 @@ export default function DoorprizePage() {
             </div>
             <form onSubmit={handleSaveSetup} className="flex flex-col gap-5">
               <div>
-                <label className="text-label-sm text-on-surface-variant block mb-2">Jumlah Hadiah yang Dibagikan</label>
+                <label className="text-label-sm text-on-surface-variant block mb-2">Total Hadiah yang Dibagikan</label>
                 <input
                   type="number"
                   min={1}
@@ -640,6 +718,20 @@ export default function DoorprizePage() {
                   className="w-full border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11 text-center text-2xl font-bold"
                   required
                 />
+              </div>
+              <div>
+                <label className="text-label-sm text-on-surface-variant block mb-2">Jumlah Pemenang dalam 1 Pengundian</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={draftJumlahPerUndi}
+                  onChange={(e) => setDraftJumlahPerUndi(e.target.value)}
+                  className="w-full border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11 text-center text-2xl font-bold"
+                  required
+                />
+                <p className="text-[11px] text-on-surface-variant mt-1">
+                  Jumlah ini dipakai setiap tombol STOP ditekan.
+                </p>
               </div>
               <div className="flex gap-3 justify-end">
                 <button type="button" onClick={() => setSetupOpen(false)} className="px-5 py-2.5 rounded-xl border border-outline-variant text-on-surface-variant hover:bg-surface-container text-[13px]">
@@ -724,9 +816,15 @@ export default function DoorprizePage() {
                 <p className="text-on-surface-variant text-[10px] uppercase tracking-widest">PEMENANG</p>
                 <p className="text-on-surface font-bold text-[16px]">{winners.length} / {setup?.jumlah_hadiah ?? "?"}</p>
               </div>
+              {setup && (
+                <div className="text-center">
+                  <p className="text-on-surface-variant text-[10px] uppercase tracking-widest">PER UNDI</p>
+                  <p className="text-on-surface font-bold text-[16px]">{winnersPerDraw} orang</p>
+                </div>
+              )}
               {isSlotFull && (
                 <div className="px-4 py-2 rounded-full bg-tertiary-container text-on-tertiary-container text-[12px] font-semibold">
-                  ✅ Semua hadiah terisi
+                  ✅ Pengundian sudah habis
                 </div>
               )}
               <button
@@ -741,7 +839,7 @@ export default function DoorprizePage() {
           </div>
 
           {/* Center spin area */}
-          <div className="flex-1 flex flex-col items-center justify-center gap-10 px-8 relative overflow-hidden">
+          <div className="flex-1 flex flex-col items-center justify-center gap-8 px-8 py-8 relative overflow-y-auto">
 
             {/* No eligible banner */}
             {spinState === "idle" && (isSlotFull || hadirCount === 0 || eligibleCount === 0 || undiError) && (
@@ -749,11 +847,11 @@ export default function DoorprizePage() {
                 <span className="material-symbols-outlined text-[22px] mt-0.5 shrink-0">group_off</span>
                 <div>
                   <p className="font-bold text-[14px]">
-                    {hadirCount === 0 ? "Tidak ada peserta yang hadir" : "Peserta undian sudah habis"}
+                    {hadirCount === 0 ? "Tidak ada peserta yang hadir" : "Pengundian sudah habis"}
                   </p>
                   <p className="text-[12px] mt-0.5 opacity-80">
                     {isSlotFull
-                      ? "Semua jatah hadiah untuk kegiatan ini sudah terpenuhi."
+                      ? "Semua hadiah sudah memiliki pemenang."
                       : hadirCount === 0
                       ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
                       : undiError ?? "Semua peserta yang hadir sudah mendapat doorprize di kegiatan ini."}
@@ -778,7 +876,7 @@ export default function DoorprizePage() {
               {spinState === "stopping" && "⏳ Melambat..."}
               {spinState === "idle" && lastWinners.length > 0 && "🎁 Pemenang!"}
               {spinState === "idle" && lastWinners.length === 0 && !isSlotFull && "Siap Mengundi"}
-              {spinState === "idle" && lastWinners.length === 0 && isSlotFull && "✅ Semua Hadiah Terisi"}
+              {spinState === "idle" && lastWinners.length === 0 && isSlotFull && "✅ Pengundian Sudah Habis"}
             </div>
 
             {/* Name display */}
@@ -859,32 +957,34 @@ export default function DoorprizePage() {
             </div>
 
             {/* Controls */}
-            <div className="flex gap-6">
-              <button
-                onClick={handleStart}
-                disabled={!canStart}
-                className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-tertiary text-on-tertiary hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <span className="material-symbols-outlined material-symbols-filled text-[30px]">play_circle</span>
-                MULAI
-              </button>
-              <button
-                onClick={handleStop}
-                disabled={spinState !== "running"}
-                className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-error text-on-error hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <span className="material-symbols-outlined material-symbols-filled text-[30px]">stop_circle</span>
-                STOP
-              </button>
-            </div>
+            <div className="sticky bottom-0 z-20 w-full max-w-3xl rounded-2xl border border-outline-variant bg-surface-container-lowest/95 px-6 py-4 shadow-xl backdrop-blur">
+              <div className="flex justify-center gap-6">
+                <button
+                  onClick={handleStart}
+                  disabled={!canStart}
+                  className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-tertiary text-on-tertiary hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined material-symbols-filled text-[30px]">play_circle</span>
+                  MULAI
+                </button>
+                <button
+                  onClick={handleStop}
+                  disabled={spinState !== "running"}
+                  className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-error text-on-error hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined material-symbols-filled text-[30px]">stop_circle</span>
+                  STOP
+                </button>
+              </div>
 
-            <p className="text-on-surface-variant text-[12px] text-center">
-              {isSlotFull
-                ? "Semua hadiah sudah memiliki pemenang."
-                : lastWinners.length > 0
-                ? "Klik MULAI untuk mengundi putaran berikutnya dengan maksimal 10 pemenang lagi."
-                : "Klik MULAI untuk memutar nama peserta, lalu klik STOP untuk memilih maksimal 10 pemenang sekaligus."}
-            </p>
+              <p className="text-on-surface-variant text-[12px] text-center mt-3">
+                {isSlotFull
+                  ? "Pengundian sudah habis. Semua hadiah sudah memiliki pemenang."
+                  : lastWinners.length > 0
+                  ? `Klik MULAI untuk mengundi putaran berikutnya dengan maksimal ${winnersPerDraw} pemenang lagi.`
+                  : `Klik MULAI untuk memutar nama peserta, lalu klik STOP untuk memilih maksimal ${winnersPerDraw} pemenang sekaligus.`}
+              </p>
+            </div>
           </div>
 
           {/* Bottom: winners strip */}
@@ -1006,10 +1106,16 @@ export default function DoorprizePage() {
                   </div>
                 )}
                 {setup && (
-                  <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary-fixed border border-primary/20 text-body-sm text-on-primary-fixed-variant">
-                    <span className="material-symbols-outlined text-[16px]">redeem</span>
-                    {winners.length} / {setup.jumlah_hadiah} hadiah diundi
-                  </div>
+                  <>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary-fixed border border-primary/20 text-body-sm text-on-primary-fixed-variant">
+                      <span className="material-symbols-outlined text-[16px]">redeem</span>
+                      {winners.length} / {setup.jumlah_hadiah} hadiah diundi
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-secondary-fixed border border-secondary/20 text-body-sm text-on-secondary-fixed-variant">
+                      <span className="material-symbols-outlined text-[16px]">groups</span>
+                      {setup.jumlah_per_undi ?? 10} pemenang / pengundian
+                    </div>
+                  </>
                 )}
                 <div className="ml-auto flex gap-2">
                   <button
@@ -1046,7 +1152,7 @@ export default function DoorprizePage() {
                     <div>
                       <h3 className="font-bold text-on-surface text-lg">Pengundian Doorprize</h3>
                       <p className="text-on-surface-variant text-[13px]">
-                        {winners.length} dari {setup.jumlah_hadiah} hadiah sudah diundi
+                        {winners.length} dari {setup.jumlah_hadiah} hadiah sudah diundi. Maksimal {setup.jumlah_per_undi ?? 10} pemenang per pengundian.
                       </p>
                     </div>
                   </div>
@@ -1055,7 +1161,7 @@ export default function DoorprizePage() {
                     {isSlotFull ? (
                       <div className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-tertiary-container text-on-tertiary-container font-semibold text-[14px]">
                         <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                        Semua Hadiah Terisi
+                        Pengundian Sudah Habis
                       </div>
                     ) : (
                       <button
@@ -1082,19 +1188,41 @@ export default function DoorprizePage() {
                     />
                   </div>
                 </div>
+
+                {isSlotFull && (
+                  <div className="flex items-start gap-3 rounded-xl border border-tertiary/20 bg-tertiary-container px-5 py-4 text-on-tertiary-container">
+                    <span className="material-symbols-outlined text-[22px] shrink-0">task_alt</span>
+                    <div>
+                      <p className="font-bold text-[14px]">Pengundian sudah habis</p>
+                      <p className="text-[12px] mt-0.5 opacity-80">
+                        Semua hadiah sudah memiliki pemenang. Batalkan pemenang terlebih dahulu jika perlu membuka slot pengundian lagi.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </Card>
             )}
 
             {/* Winners table */}
             {winners.length > 0 && (
               <Card className="flex flex-col">
-                <div className="p-6 border-b border-outline-variant flex items-center justify-between">
+                <div className="p-6 border-b border-outline-variant flex flex-wrap items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <span className="material-symbols-outlined material-symbols-filled text-secondary text-[22px]">emoji_events</span>
                     <h4 className="font-h3 text-[20px] text-on-surface">Daftar Pemenang</h4>
                   </div>
                   <div className="flex items-center gap-3">
                     <Badge label={`${winners.length} pemenang`} variant="info" />
+                    {selectedWinnerCount > 0 && (
+                      <button
+                        onClick={() => void handleBatalkanSelectedWinners()}
+                        disabled={cancellingSelected}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-error text-error text-[12px] font-medium hover:bg-error-container/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">undo</span>
+                        {cancellingSelected ? "Membatalkan..." : `Batalkan ${selectedWinnerCount} Terpilih`}
+                      </button>
+                    )}
                     <button
                       onClick={() => void handleDownloadWinnersPdf()}
                       disabled={downloadingPdf}
@@ -1109,6 +1237,15 @@ export default function DoorprizePage() {
                   <table className="w-full text-body-sm">
                     <thead>
                       <tr className="bg-surface-container border-b border-outline-variant text-on-surface-variant text-[11px] uppercase tracking-widest">
+                        <th className="px-4 py-3 text-center w-10">
+                          <input
+                            type="checkbox"
+                            aria-label="Pilih semua pemenang"
+                            checked={allWinnersSelected}
+                            onChange={toggleAllWinners}
+                            className="h-4 w-4 accent-primary"
+                          />
+                        </th>
                         <th className="px-5 py-3 text-center w-12">#</th>
                         <th className="px-5 py-3 text-center">Foto</th>
                         <th className="px-5 py-3 text-left">Nama</th>
@@ -1122,7 +1259,21 @@ export default function DoorprizePage() {
                     </thead>
                     <tbody className="divide-y divide-outline-variant/40">
                       {winners.map((w) => (
-                        <tr key={w.id} className="hover:bg-surface-container-low transition-colors">
+                        <tr
+                          key={w.id}
+                          className={`hover:bg-surface-container-low transition-colors ${
+                            selectedWinnerIds.has(w.id) ? "bg-primary-fixed/40" : ""
+                          }`}
+                        >
+                          <td className="px-4 py-3.5 text-center">
+                            <input
+                              type="checkbox"
+                              aria-label={`Pilih pemenang ${w.nama}`}
+                              checked={selectedWinnerIds.has(w.id)}
+                              onChange={() => toggleWinnerSelection(w.id)}
+                              className="h-4 w-4 accent-primary"
+                            />
+                          </td>
                           <td className="px-5 py-3.5 text-center">
                             <span className="inline-flex w-8 h-8 items-center justify-center rounded-full bg-secondary-fixed text-secondary font-bold text-[13px]">
                               {w.urutan}

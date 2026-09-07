@@ -6,10 +6,12 @@ import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { FetchErrorRow } from "@/components/ui/FetchError";
 
-type SourceFundCode = "umum" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
+type SourceFundCode = "umum" | "donasi" | "penjualan_barang" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
 
 const SOURCE_FUND_OPTIONS: { code: SourceFundCode; label: string }[] = [
   { code: "umum", label: "Umum" },
+  { code: "donasi", label: "Donasi" },
+  { code: "penjualan_barang", label: "Penjualan Barang" },
   { code: "iuran_anggota", label: "Iuran Arisan Anggota" },
   { code: "iuran_konsumsi_anggota", label: "Iuran Konsumsi Anggota" },
   { code: "iuran_pengurus", label: "Iuran Pengurus" },
@@ -182,11 +184,11 @@ export default function KasTransaksiPage() {
 
   const exportCsv = () => {
     if (data.length === 0) return;
-    const header = ["No", "Nomor", "Tanggal", "Tipe", "Kategori", "Nominal", "Metode", "Deskripsi", "No. Referensi", "Status", "Sumber"];
+    const header = ["No", "Nomor", "Tanggal", "Tipe", "Kategori", "Sumber Dana", "Nominal", "Metode", "Deskripsi", "No. Referensi", "Status", "Sumber"];
     const rows = data.map((t, i) => [
       String(i + 1), t.transaction_number, t.transaction_date,
       t.type === "income" ? "Pemasukan" : "Pengeluaran",
-      t.category_name, String(t.amount), t.payment_method,
+      t.category_name, t.type === "expense" ? getSourceFundLabel(t.source_fund) : "", String(t.amount), t.payment_method,
       t.description ?? "", t.reference_number ?? "", t.status,
       t.source_type ?? "manual",
     ]);

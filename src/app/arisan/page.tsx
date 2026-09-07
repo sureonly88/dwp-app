@@ -19,6 +19,7 @@ interface Kegiatan {
 interface ArisanSetup {
   nominal_per_orang: string | number;
   jumlah_pemenang: number;
+  jumlah_per_undi: number;
 }
 
 interface ArisanWinner {
@@ -129,7 +130,7 @@ export default function ArisanPage() {
   // Spin state
   const [spinState, setSpinState] = useState<SpinState>("idle");
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const [lastWinner, setLastWinner] = useState<ArisanWinner | null>(null);
+  const [lastWinners, setLastWinners] = useState<ArisanWinner[]>([]);
   const [rollNames, setRollNames] = useState<string[]>([]);
   const rollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const rollIdxRef = useRef(0);
@@ -139,7 +140,8 @@ export default function ArisanPage() {
   // Setup modal
   const [setupOpen, setSetupOpen] = useState(false);
   const [nominal, setNominal] = useState("0");
-  const [jumlahPemenang, setJumlahPemenang] = useState("1");
+  const [jumlahPemenang, setJumlahPemenang] = useState("10");
+  const [jumlahPerUndi, setJumlahPerUndi] = useState("10");
   const [savingSetup, setSavingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
 
@@ -162,6 +164,8 @@ export default function ArisanPage() {
   const [allWinnersMonth, setAllWinnersMonth] = useState<string>("");
   const [allWinnersLoading, setAllWinnersLoading] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [selectedWinnerIds, setSelectedWinnerIds] = useState<Set<number>>(() => new Set());
+  const [cancellingSelected, setCancellingSelected] = useState(false);
 
   // Manual input
   const [anggotaOptions, setAnggotaOptions] = useState<AnggotaOption[]>([]);
@@ -291,13 +295,20 @@ export default function ArisanPage() {
       const res = await fetch(`/api/arisan/${kegiatanId}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
+      const nextWinners: ArisanWinner[] = json.winners ?? [];
       setKegiatanInfo(json.kegiatan);
-      setSetup(json.setup);
-      setWinners(json.winners ?? []);
+      setSetup(json.setup ? { ...json.setup, jumlah_per_undi: Number(json.setup.jumlah_per_undi ?? 10) } : null);
+      setWinners(nextWinners);
+      setSelectedWinnerIds((current) => {
+        const availableWinnerIds = new Set(nextWinners.map((winner) => winner.id));
+        return new Set([...current].filter((winnerId) => availableWinnerIds.has(winnerId)));
+      });
       setHadirCount(json.hadir_count ?? null);
       setEligibleCount(json.eligible_count ?? null);
       setNominal(json.setup ? String(Number(json.setup.nominal_per_orang)) : "0");
-      setJumlahPemenang(json.setup ? String(json.setup.jumlah_pemenang) : "1");
+      setJumlahPemenang(json.setup ? String(json.setup.jumlah_pemenang) : "10");
+      setJumlahPerUndi(json.setup ? String(json.setup.jumlah_per_undi ?? 10) : "10");
+      setUndiError(null);
       // Nama anggota hadir di kegiatan ini — dipakai untuk animasi roll
       setRollNames((json.roll_names ?? []).filter((n: string) => typeof n === "string" && n.trim().length > 0));
     } catch {
@@ -311,9 +322,10 @@ export default function ArisanPage() {
     if (selectedId !== null) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset state undian saat kegiatan berubah.
       setDisplayName(null);
-      setLastWinner(null);
+      setLastWinners([]);
       setSpinState("idle");
       setRollNames([]);
+      setSelectedWinnerIds(new Set());
       loadDetail(selectedId);
     }
   }, [selectedId, loadDetail]);
@@ -327,6 +339,16 @@ export default function ArisanPage() {
   const handleSaveSetup = async () => {
     if (!selectedId) return;
     setSetupError(null);
+    const totalPemenang = Number(jumlahPemenang);
+    const pemenangPerUndi = Number(jumlahPerUndi);
+    if (!Number.isInteger(totalPemenang) || totalPemenang < 1) {
+      setSetupError("Jumlah pemenang kegiatan tidak valid");
+      return;
+    }
+    if (!Number.isInteger(pemenangPerUndi) || pemenangPerUndi < 1) {
+      setSetupError("Jumlah pemenang dalam 1 pengundian tidak valid");
+      return;
+    }
     setSavingSetup(true);
     try {
       const res = await fetch(`/api/arisan/${selectedId}`, {
@@ -334,7 +356,8 @@ export default function ArisanPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nominal_per_orang: Number(nominal),
-          jumlah_pemenang: Number(jumlahPemenang),
+          jumlah_pemenang: totalPemenang,
+          jumlah_per_undi: pemenangPerUndi,
         }),
       });
       const json = await res.json();
@@ -474,13 +497,13 @@ export default function ArisanPage() {
   const handleStart = async () => {
     if (spinState !== "idle" || !setup) return;
     if (isSlotFull) {
-      setUndiError("Semua jatah pemenang untuk kegiatan ini sudah terpenuhi.");
+      setUndiError("Pengundian sudah habis. Semua jatah pemenang sudah terisi.");
       return;
     }
     if (eligibleCount === 0) {
       setUndiError(hadirCount === 0
         ? "Belum ada anggota yang melakukan presensi di kegiatan ini."
-        : "Semua peserta yang hadir sudah pernah mendapat arisan tahun ini.");
+        : "Pengundian sudah habis. Semua peserta yang hadir sudah pernah mendapat arisan tahun ini.");
       return;
     }
     if (undiError) return;
@@ -492,12 +515,12 @@ export default function ArisanPage() {
     const ac = getAudioCtx();
     if (ac) ac.resume().catch(() => {});
     setSpinState("running");
-    setDisplayName(null);
-    setLastWinner(null);
+    setDisplayName(rollNames[rollIdxRef.current] ?? null);
+    setLastWinners([]);
     rollIdxRef.current = 0;
     rollIntervalRef.current = setInterval(() => {
       rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
-      setDisplayName(rollNames[rollIdxRef.current]);
+      setDisplayName(rollNames[rollIdxRef.current] ?? null);
       playHihat();
     }, 80);
   };
@@ -518,7 +541,7 @@ export default function ArisanPage() {
       delay = Math.min(delay * 1.35, 400);
       rollIntervalRef.current = setInterval(() => {
         rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
-        setDisplayName(rollNames[rollIdxRef.current]);
+        setDisplayName(rollNames[rollIdxRef.current] ?? null);
         if (delay < 150) {
           playHihat();
         } else {
@@ -549,12 +572,13 @@ export default function ArisanPage() {
       }
 
       setUndiError(null);
-      setLastWinner(json.winner);
-      setDisplayName(json.winner.nama);
+      const drawnWinners: ArisanWinner[] = Array.isArray(json.winners) ? json.winners : [];
+      setLastWinners(drawnWinners);
+      setDisplayName(null);
       playVictorySound();
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 5500);
-      showToast(`Pemenang: ${json.winner.nama}`);
+      showToast(`${drawnWinners.length} pemenang arisan berhasil diundi`);
       loadDetail(selectedId);
     } catch {
       if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
@@ -568,18 +592,78 @@ export default function ArisanPage() {
     setSpinState("idle");
   };
 
-  // ---- delete winner ----
+  // ---- cancel winner ----
   const handleHapusWinner = async (winnerId: number, nama: string) => {
     if (!selectedId) return;
-    if (!confirm(`Hapus pemenang ${nama}?`)) return;
+    if (!confirm(`Batalkan pemenang ${nama}?`)) return;
     try {
       const res = await fetch(`/api/arisan/${selectedId}/winner/${winnerId}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
-      showToast(`Pemenang ${nama} dihapus`);
-      if (lastWinner?.id === winnerId) { setLastWinner(null); setDisplayName(null); }
+      showToast(`Pemenang ${nama} dibatalkan`);
+      setSelectedWinnerIds((current) => {
+        const next = new Set(current);
+        next.delete(winnerId);
+        return next;
+      });
+      if (lastWinners.some((winner) => winner.id === winnerId)) {
+        setLastWinners((current) => current.filter((winner) => winner.id !== winnerId));
+        setDisplayName(null);
+      }
       loadDetail(selectedId);
     } catch {
-      showToast("Gagal menghapus", "error");
+      showToast("Gagal membatalkan", "error");
+    }
+  };
+
+  const toggleWinnerSelection = (winnerId: number) => {
+    setSelectedWinnerIds((current) => {
+      const next = new Set(current);
+      if (next.has(winnerId)) {
+        next.delete(winnerId);
+      } else {
+        next.add(winnerId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllWinners = () => {
+    setSelectedWinnerIds(allWinnersSelected ? new Set() : new Set(winners.map((winner) => winner.id)));
+  };
+
+  const handleBatalkanSelectedWinners = async () => {
+    if (!selectedId || selectedWinnerIds.size === 0) return;
+
+    const selectedIds = new Set(selectedWinnerIds);
+    const selectedWinners = winners.filter((winner) => selectedIds.has(winner.id));
+    if (selectedWinners.length === 0) return;
+    if (!confirm(`Batalkan ${selectedWinners.length} pemenang terpilih?`)) return;
+
+    setCancellingSelected(true);
+    let deletedCount = 0;
+    try {
+      for (const winner of selectedWinners) {
+        const res = await fetch(`/api/arisan/${selectedId}/winner/${winner.id}`, { method: "DELETE" });
+        if (!res.ok) {
+          const json = await res.json().catch(() => null);
+          throw new Error(json?.error ?? `Gagal membatalkan ${winner.nama}`);
+        }
+        deletedCount += 1;
+      }
+
+      showToast(`${selectedWinners.length} pemenang dibatalkan`);
+      setSelectedWinnerIds(new Set());
+      setLastWinners((current) => current.filter((winner) => !selectedIds.has(winner.id)));
+      loadDetail(selectedId);
+    } catch (e) {
+      showToast((e as Error).message ?? "Gagal membatalkan pemenang terpilih", "error");
+      if (deletedCount > 0) {
+        setSelectedWinnerIds(new Set());
+        setLastWinners((current) => current.filter((winner) => !selectedIds.has(winner.id)));
+        loadDetail(selectedId);
+      }
+    } finally {
+      setCancellingSelected(false);
     }
   };
 
@@ -593,9 +677,11 @@ export default function ArisanPage() {
       setSetup(null);
       setWinners([]);
       setDisplayName(null);
-      setLastWinner(null);
+      setLastWinners([]);
       setNominal("0");
-      setJumlahPemenang("1");
+      setJumlahPemenang("10");
+      setJumlahPerUndi("10");
+      setSelectedWinnerIds(new Set());
     } catch {
       showToast("Gagal mereset", "error");
     }
@@ -661,11 +747,15 @@ export default function ArisanPage() {
   };
 
   const isSlotFull = setup ? winners.length >= setup.jumlah_pemenang : false;
+  const selectedWinnerCount = selectedWinnerIds.size;
+  const allWinnersSelected = winners.length > 0 && selectedWinnerCount === winners.length;
+  const winnersPerDraw = setup?.jumlah_per_undi ?? 10;
   const canStart = spinState === "idle" && !!setup && !isSlotFull && !loadingDetail && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
+  const highlightedWinnerIds = new Set(lastWinners.map((winner) => winner.id));
 
   const openUndian = () => {
     setDisplayName(null);
-    setLastWinner(null);
+    setLastWinners([]);
     setSpinState("idle");
     setUndianOpen(true);
   };
@@ -674,6 +764,9 @@ export default function ArisanPage() {
     if (spinState !== "idle") return;
     if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
     slowingRef.current = false;
+    setDisplayName(null);
+    setLastWinners([]);
+    setCelebrating(false);
     setUndianOpen(false);
   };
 
@@ -733,7 +826,7 @@ export default function ArisanPage() {
                 )}
               </div>
               <div>
-                <label className="text-label-sm text-on-surface-variant block mb-1.5">Jumlah Pemenang per Undian</label>
+                <label className="text-label-sm text-on-surface-variant block mb-1.5">Jumlah Pemenang Kegiatan</label>
                 <input
                   type="number"
                   min={1}
@@ -742,7 +835,20 @@ export default function ArisanPage() {
                   className={INPUT_CLS}
                 />
                 <p className="text-[11px] text-on-surface-variant mt-1">
-                  Berapa anggota yang akan mendapat arisan pada kegiatan ini.
+                  Total anggota yang akan mendapat arisan pada kegiatan ini.
+                </p>
+              </div>
+              <div>
+                <label className="text-label-sm text-on-surface-variant block mb-1.5">Jumlah Pemenang dalam 1 Pengundian</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={jumlahPerUndi}
+                  onChange={(e) => setJumlahPerUndi(e.target.value)}
+                  className={INPUT_CLS}
+                />
+                <p className="text-[11px] text-on-surface-variant mt-1">
+                  Jumlah ini dipakai setiap tombol STOP ditekan.
                 </p>
               </div>
             </div>
@@ -919,6 +1025,10 @@ export default function ArisanPage() {
                     <p className="text-on-surface font-bold text-[16px]">{Math.max(0, setup.jumlah_pemenang - winners.length)}</p>
                   </div>
                   <div className="text-center">
+                    <p className="text-on-surface-variant text-[10px] uppercase tracking-widest">PER UNDI</p>
+                    <p className="text-on-surface font-bold text-[16px]">{winnersPerDraw} orang</p>
+                  </div>
+                  <div className="text-center">
                     <p className="text-on-surface-variant text-[10px] uppercase tracking-widest">PESERTA HADIR</p>
                     <p className={`font-bold text-[16px] ${hadirCount === 0 ? "text-error" : "text-tertiary"}`}>
                       {hadirCount ?? "–"} orang
@@ -937,7 +1047,7 @@ export default function ArisanPage() {
             </div>
 
             {/* Center spin area */}
-            <div className="flex-1 flex flex-col items-center justify-center gap-10 px-8 relative overflow-hidden">
+            <div className="flex-1 flex flex-col items-center justify-center gap-8 px-8 py-8 relative overflow-y-auto">
 
               {/* Status badge */}
               <div className={`px-8 py-2.5 rounded-full text-[15px] font-bold uppercase tracking-[0.2em] transition-all ${
@@ -945,14 +1055,17 @@ export default function ArisanPage() {
                   ? "bg-tertiary text-on-tertiary"
                   : spinState === "stopping"
                   ? "bg-secondary text-on-secondary"
-                  : lastWinner
+                  : lastWinners.length > 0
                   ? "bg-primary text-on-primary"
+                  : isSlotFull
+                  ? "bg-tertiary-container text-on-tertiary-container"
                   : "bg-surface-container-high text-on-surface-variant"
               }`}>
                 {spinState === "running" && "🎲 Sedang Bergulir..."}
                 {spinState === "stopping" && "⏳ Melambat..."}
-                {spinState === "idle" && lastWinner && "🏆 Pemenang!"}
-                {spinState === "idle" && !lastWinner && "Siap Mengundi"}
+                {spinState === "idle" && lastWinners.length > 0 && "🏆 Pemenang!"}
+                {spinState === "idle" && lastWinners.length === 0 && !isSlotFull && "Siap Mengundi"}
+                {spinState === "idle" && lastWinners.length === 0 && isSlotFull && "✅ Pengundian Sudah Habis"}
               </div>
 
               {/* No eligible banner */}
@@ -961,11 +1074,11 @@ export default function ArisanPage() {
                   <span className="material-symbols-outlined text-[22px] mt-0.5 shrink-0">group_off</span>
                   <div>
                     <p className="font-bold text-[14px]">
-                      {hadirCount === 0 ? "Tidak ada peserta yang hadir" : "Peserta undian sudah habis"}
+                      {hadirCount === 0 ? "Tidak ada peserta yang hadir" : "Pengundian sudah habis"}
                     </p>
                     <p className="text-[12px] mt-0.5 opacity-80">
                       {isSlotFull
-                        ? "Semua jatah pemenang untuk kegiatan ini sudah terpenuhi."
+                        ? "Semua jatah pemenang sudah terisi."
                         : hadirCount === 0
                         ? "Belum ada anggota yang melakukan presensi di kegiatan ini."
                         : undiError ?? "Semua peserta yang hadir sudah pernah mendapat arisan tahun ini."}
@@ -977,64 +1090,81 @@ export default function ArisanPage() {
               {/* Name display */}
               <div className="text-center">
                 <p className="text-on-surface-variant text-[11px] uppercase tracking-[0.3em] mb-4">
-                  {spinState === "idle" && lastWinner ? "PEMENANG ARISAN" : "NAMA PESERTA"}
+                  {spinState === "idle" && lastWinners.length > 0 ? "PEMENANG ARISAN" : "NAMA PESERTA"}
                 </p>
-                <h1
-                  key={lastWinner?.id ?? "idle"}
-                  className={`font-bold leading-tight uppercase ${
-                    spinState !== "idle"
-                      ? "text-6xl text-on-surface-variant/50 transition-all duration-100"
-                      : lastWinner
-                      ? "text-8xl text-primary winner-reveal"
-                      : "text-6xl text-on-surface-variant/20"
-                  }`}
-                >
-                  {displayName ?? "— — —"}
-                </h1>
-                {spinState === "idle" && lastWinner && (
-                  <div className="mt-6 flex flex-col items-center gap-4 winner-reveal">
-                    <div className="w-40 h-40 rounded-3xl overflow-hidden border border-primary/20 bg-surface-container shadow-lg flex items-center justify-center">
-                      {lastWinner.foto ? (
-                        <>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={lastWinner.foto} alt={`Foto ${lastWinner.nama}`} className="w-full h-full object-cover" />
-                        </>
-                      ) : (
-                        <span className="material-symbols-outlined text-primary/50 text-[72px]">account_circle</span>
-                      )}
-                    </div>
-                    <p className="text-on-surface-variant text-[14px] shimmer-text text-center">
-                      {lastWinner.unit_kerja} &nbsp;·&nbsp; {lastWinner.jabatan}
-                    </p>
+                {spinState === "idle" && lastWinners.length > 0 ? (
+                  <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 winner-reveal">
+                    {lastWinners.map((winner) => (
+                      <div
+                        key={winner.id}
+                        className="rounded-2xl border border-primary/20 bg-primary-fixed px-5 py-6 shadow-lg"
+                      >
+                        <div className="mb-4 flex justify-center">
+                          <div className="w-24 h-24 rounded-2xl overflow-hidden border border-primary/20 bg-surface-container shadow-sm flex items-center justify-center">
+                            {winner.foto ? (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={winner.foto} alt={`Foto ${winner.nama}`} className="w-full h-full object-cover" />
+                              </>
+                            ) : (
+                              <span className="material-symbols-outlined text-primary/50 text-[42px]">account_circle</span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-[11px] uppercase tracking-[0.25em] text-on-primary-fixed-variant/70 mb-3">
+                          Pemenang ke-{winner.urutan}
+                        </p>
+                        <h2 className="text-2xl font-bold text-primary uppercase leading-tight break-words">
+                          {winner.nama}
+                        </h2>
+                        <p className="mt-3 text-[13px] text-on-primary-fixed-variant shimmer-text">
+                          {winner.unit_kerja} · {winner.jabatan}
+                        </p>
+                      </div>
+                    ))}
                   </div>
+                ) : (
+                  <h1
+                    className={`font-bold leading-tight uppercase ${
+                      spinState !== "idle"
+                        ? "text-6xl text-on-surface-variant/50 transition-all duration-100"
+                        : "text-6xl text-on-surface-variant/20"
+                    }`}
+                  >
+                    {displayName ?? "— — —"}
+                  </h1>
                 )}
               </div>
 
               {/* Controls */}
-              <div className="flex gap-6">
-                <button
-                  onClick={handleStart}
-                  disabled={!canStart}
-                  className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-tertiary text-on-tertiary hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <span className="material-symbols-outlined material-symbols-filled text-[30px]">play_circle</span>
-                  MULAI
-                </button>
-                <button
-                  onClick={handleStop}
-                  disabled={spinState !== "running"}
-                  className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-error text-on-error hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <span className="material-symbols-outlined material-symbols-filled text-[30px]">stop_circle</span>
-                  STOP
-                </button>
-              </div>
+              <div className="sticky bottom-0 z-20 w-full max-w-3xl rounded-2xl border border-outline-variant bg-surface-container-lowest/95 px-6 py-4 shadow-xl backdrop-blur">
+                <div className="flex justify-center gap-6">
+                  <button
+                    onClick={handleStart}
+                    disabled={!canStart}
+                    className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-tertiary text-on-tertiary hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <span className="material-symbols-outlined material-symbols-filled text-[30px]">play_circle</span>
+                    MULAI
+                  </button>
+                  <button
+                    onClick={handleStop}
+                    disabled={spinState !== "running"}
+                    className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-error text-on-error hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <span className="material-symbols-outlined material-symbols-filled text-[30px]">stop_circle</span>
+                    STOP
+                  </button>
+                </div>
 
-              <p className="text-on-surface-variant text-[12px] text-center">
-                {isSlotFull
-                  ? "✅ Semua jatah pemenang sudah terisi."
-                  : "Klik MULAI untuk memutar nama, lalu klik STOP untuk memilih pemenang."}
-              </p>
+                <p className="text-on-surface-variant text-[12px] text-center mt-3">
+                  {isSlotFull
+                    ? "Pengundian sudah habis. Semua jatah pemenang sudah terisi."
+                    : lastWinners.length > 0
+                    ? `Klik MULAI untuk mengundi putaran berikutnya dengan maksimal ${winnersPerDraw} pemenang lagi.`
+                    : `Klik MULAI untuk memutar nama, lalu klik STOP untuk memilih maksimal ${winnersPerDraw} pemenang sekaligus.`}
+                </p>
+              </div>
             </div>
 
             {/* Bottom: mini winners list */}
@@ -1051,7 +1181,7 @@ export default function ArisanPage() {
                       <div
                         key={w.id}
                         className={`flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border ${
-                          lastWinner?.id === w.id
+                          highlightedWinnerIds.has(w.id)
                             ? "bg-primary-fixed border-primary/40"
                             : "bg-surface-container border-outline-variant"
                         }`}
@@ -1114,6 +1244,10 @@ export default function ArisanPage() {
                       <span className="material-symbols-outlined text-[16px]">group</span>
                       {winners.length} / {setup.jumlah_pemenang} pemenang
                     </div>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-tertiary-container border border-tertiary/20 text-body-sm text-on-tertiary-container">
+                      <span className="material-symbols-outlined text-[16px]">groups</span>
+                      {setup.jumlah_per_undi ?? 10} pemenang / pengundian
+                    </div>
                   </>
                 ) : (
                   <button
@@ -1139,16 +1273,37 @@ export default function ArisanPage() {
                 </button>
               </div>
             )}
+            {setup && isSlotFull && (
+              <div className="flex items-start gap-3 rounded-xl border border-tertiary/20 bg-tertiary-container px-5 py-4 text-on-tertiary-container">
+                <span className="material-symbols-outlined text-[22px] shrink-0">task_alt</span>
+                <div>
+                  <p className="font-bold text-[14px]">Pengundian sudah habis</p>
+                  <p className="text-[12px] mt-0.5 opacity-80">
+                    Semua jatah pemenang sudah terisi. Batalkan pemenang terlebih dahulu jika perlu membuka slot pengundian lagi.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Winners list */}
             <Card className="flex flex-col">
-              <div className="p-6 border-b border-outline-variant flex items-center justify-between">
+              <div className="p-6 border-b border-outline-variant flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <span className="material-symbols-outlined material-symbols-filled text-secondary text-[22px]">emoji_events</span>
                   <h4 className="font-h3 text-[20px] text-on-surface">Daftar Pemenang</h4>
                 </div>
                 <div className="flex items-center gap-3">
                   <Badge label={`${winners.length} orang`} variant="info" />
+                  {selectedWinnerCount > 0 && (
+                    <button
+                      onClick={() => void handleBatalkanSelectedWinners()}
+                      disabled={cancellingSelected}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-error text-error text-[12px] font-medium hover:bg-error-container/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">undo</span>
+                      {cancellingSelected ? "Membatalkan..." : `Batalkan ${selectedWinnerCount} Terpilih`}
+                    </button>
+                  )}
                   {isSlotFull && (
                     <button
                       onClick={openUndian}
@@ -1172,6 +1327,15 @@ export default function ArisanPage() {
                   <table className="w-full text-body-sm">
                     <thead>
                       <tr className="bg-surface-container border-b border-outline-variant text-on-surface-variant text-[11px] uppercase tracking-widest">
+                        <th className="px-4 py-3 text-center w-10">
+                          <input
+                            type="checkbox"
+                            aria-label="Pilih semua pemenang"
+                            checked={allWinnersSelected}
+                            onChange={toggleAllWinners}
+                            className="h-4 w-4 accent-primary"
+                          />
+                        </th>
                         <th className="px-5 py-3 text-center w-12">#</th>
                         <th className="px-5 py-3 text-center">Foto</th>
                         <th className="px-5 py-3 text-left">Nama</th>
@@ -1184,7 +1348,21 @@ export default function ArisanPage() {
                     </thead>
                     <tbody className="divide-y divide-outline-variant/40">
                       {winners.map((w) => (
-                        <tr key={w.id} className="hover:bg-surface-container-low transition-colors">
+                        <tr
+                          key={w.id}
+                          className={`hover:bg-surface-container-low transition-colors ${
+                            selectedWinnerIds.has(w.id) ? "bg-primary-fixed/40" : ""
+                          }`}
+                        >
+                          <td className="px-4 py-3.5 text-center">
+                            <input
+                              type="checkbox"
+                              aria-label={`Pilih pemenang ${w.nama}`}
+                              checked={selectedWinnerIds.has(w.id)}
+                              onChange={() => toggleWinnerSelection(w.id)}
+                              className="h-4 w-4 accent-primary"
+                            />
+                          </td>
                           <td className="px-5 py-3.5 text-center">
                             <span className="inline-flex w-8 h-8 items-center justify-center rounded-full bg-secondary-fixed text-secondary font-bold text-[13px]">
                               {w.urutan}
@@ -1213,9 +1391,9 @@ export default function ArisanPage() {
                             <button
                               onClick={() => handleHapusWinner(w.id, w.nama)}
                               className="p-1.5 rounded-lg text-error hover:bg-error-container/30 transition-colors"
-                              title="Hapus pemenang"
+                              title="Batalkan pemenang"
                             >
-                              <span className="material-symbols-outlined text-[18px]">delete</span>
+                              <span className="material-symbols-outlined text-[18px]">undo</span>
                             </button>
                           </td>
                         </tr>
@@ -1554,4 +1732,3 @@ export default function ArisanPage() {
     </AppLayout>
   );
 }
-

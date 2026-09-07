@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS arisan_setup (
   kegiatan_id INT UNSIGNED PRIMARY KEY,
   nominal_per_orang DECIMAL(12,2) NOT NULL DEFAULT 0,
   jumlah_pemenang INT UNSIGNED NOT NULL DEFAULT 1,
+  jumlah_per_undi INT UNSIGNED NOT NULL DEFAULT 10,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_arisan_setup_kegiatan FOREIGN KEY (kegiatan_id) REFERENCES kegiatan(id) ON DELETE CASCADE
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS arisan_winners (
 CREATE TABLE IF NOT EXISTS doorprize_setup (
   kegiatan_id INT NOT NULL,
   jumlah_hadiah INT NOT NULL DEFAULT 1,
+  jumlah_per_undi INT NOT NULL DEFAULT 10,
   PRIMARY KEY (kegiatan_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

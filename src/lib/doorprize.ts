@@ -4,6 +4,8 @@ import { ensureAnggotaSchema } from "@/lib/anggota";
 
 export type DoorprizePesertaTipe = "anggota" | "tamu";
 
+let ensureDoorprizeSetupSchemaPromise: Promise<void> | null = null;
+
 interface DoorprizeCandidateRow extends RowDataPacket {
   peserta_tipe: DoorprizePesertaTipe;
   anggota_id: number | null;
@@ -24,6 +26,27 @@ export interface DoorprizeCandidate {
   jabatan: string | null;
   unit_kerja: string | null;
   instansi: string | null;
+}
+
+export async function ensureDoorprizeSetupSchema() {
+  if (!ensureDoorprizeSetupSchemaPromise) {
+    ensureDoorprizeSetupSchemaPromise = (async () => {
+      const [rows] = await pool.execute<RowDataPacket[]>(
+        `SHOW COLUMNS FROM doorprize_setup LIKE 'jumlah_per_undi'`
+      );
+
+      if (!rows.length) {
+        await pool.execute(
+          `ALTER TABLE doorprize_setup ADD COLUMN jumlah_per_undi INT NOT NULL DEFAULT 10 AFTER jumlah_hadiah`
+        );
+      }
+    })().catch((error) => {
+      ensureDoorprizeSetupSchemaPromise = null;
+      throw error;
+    });
+  }
+
+  await ensureDoorprizeSetupSchemaPromise;
 }
 
 export async function listHadirAnggotaDoorprizeNames(kegiatanId: number | string): Promise<string[]> {

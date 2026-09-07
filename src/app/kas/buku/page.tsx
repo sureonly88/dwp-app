@@ -14,9 +14,13 @@ interface Row {
 interface DanaIuran {
   code: string; name: string; saldo_awal: number; total_pemasukan: number; total_pengeluaran: number; saldo_akhir: number;
 }
+interface SumberDana {
+  code: string; name: string; saldo_awal: number; total_pemasukan: number; total_pengeluaran: number; saldo_akhir: number;
+}
 interface BukuData {
   from: string; to: string;
   saldo_awal: number; saldo_akhir: number; total_debit: number; total_kredit: number;
+  sumber_dana: SumberDana[];
   dana_iuran: DanaIuran[];
   data: Row[];
 }
@@ -55,12 +59,12 @@ export default function BukuKasPage() {
 
   const exportCsv = () => {
     if (!data) return;
-    const header = ["Tanggal", "Nomor", "Kategori", "Keterangan", "Debit", "Kredit", "Saldo"];
-    const rows: string[][] = [["", "", "Total Saldo Awal", "", "", "", String(data.saldo_awal)]];
+    const header = ["Tanggal", "Nomor", "Kategori", "Sumber Dana", "Keterangan", "Debit", "Kredit", "Saldo"];
+    const rows: string[][] = [["", "", "Total Saldo Awal", "", "", "", "", String(data.saldo_awal)]];
     for (const r of data.data) {
-      rows.push([r.transaction_date, r.transaction_number, r.category_name, r.description ?? "", String(r.debit), String(r.kredit), String(r.saldo)]);
+      rows.push([r.transaction_date, r.transaction_number, r.category_name, r.source_fund_label ?? "", r.description ?? "", String(r.debit), String(r.kredit), String(r.saldo)]);
     }
-    rows.push(["", "", "Total / Saldo Akhir", "", String(data.total_debit), String(data.total_kredit), String(data.saldo_akhir)]);
+    rows.push(["", "", "Total / Saldo Akhir", "", "", String(data.total_debit), String(data.total_kredit), String(data.saldo_akhir)]);
     const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -101,8 +105,8 @@ export default function BukuKasPage() {
             <p className="py-12 text-center text-on-surface-variant">Memuat...</p>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border-b border-outline-variant">
-                {data.dana_iuran.map((dana) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-4 border-b border-outline-variant">
+                {(data.sumber_dana ?? data.dana_iuran).map((dana) => (
                   <div key={dana.code} className="rounded-xl bg-surface-container-low p-4">
                     <p className="text-label-md text-on-surface mb-1">{dana.name}</p>
                     <p className="font-h3 text-h3 text-primary mb-2">{fmt(dana.saldo_akhir)}</p>

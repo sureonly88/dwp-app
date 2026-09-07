@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
-import { countDoorprizePresentParticipants, listEligibleDoorprizeCandidates, listHadirAnggotaDoorprizeNames } from "@/lib/doorprize";
+import {
+  countDoorprizePresentParticipants,
+  ensureDoorprizeSetupSchema,
+  listEligibleDoorprizeCandidates,
+  listHadirAnggotaDoorprizeNames,
+} from "@/lib/doorprize";
 
 // GET /api/doorprize/[kegiatan_id] — kegiatan + setup + flat winners list
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
   try {
+    await ensureDoorprizeSetupSchema();
+
     const { kegiatan_id } = await params;
 
     const [kegRows] = await pool.execute<RowDataPacket[]>(
@@ -18,7 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
     }
 
     const [setupRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT jumlah_hadiah FROM doorprize_setup WHERE kegiatan_id = ?`,
+      `SELECT jumlah_hadiah, jumlah_per_undi FROM doorprize_setup WHERE kegiatan_id = ?`,
       [kegiatan_id]
     );
 
@@ -107,24 +114,32 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
   }
 }
 
-// PUT /api/doorprize/[kegiatan_id] — upsert setup (jumlah_hadiah)
+// PUT /api/doorprize/[kegiatan_id] — upsert setup doorprize
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
   try {
     const { response } = await requireAdmin(req);
     if (response) return response;
+    await ensureDoorprizeSetupSchema();
+
     const { kegiatan_id } = await params;
     const body = await req.json();
     const jumlah = Number(body.jumlah_hadiah);
+    const jumlahPerUndi = Number(body.jumlah_per_undi ?? 10);
     if (!Number.isInteger(jumlah) || jumlah < 1) {
       return NextResponse.json({ error: "Jumlah hadiah tidak valid" }, { status: 400 });
     }
+    if (!Number.isInteger(jumlahPerUndi) || jumlahPerUndi < 1) {
+      return NextResponse.json({ error: "Jumlah pemenang per pengundian tidak valid" }, { status: 400 });
+    }
     await pool.execute<ResultSetHeader>(
-      `INSERT INTO doorprize_setup (kegiatan_id, jumlah_hadiah)
-       VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE jumlah_hadiah = VALUES(jumlah_hadiah)`,
-      [kegiatan_id, jumlah]
+      `INSERT INTO doorprize_setup (kegiatan_id, jumlah_hadiah, jumlah_per_undi)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         jumlah_hadiah = VALUES(jumlah_hadiah),
+         jumlah_per_undi = VALUES(jumlah_per_undi)`,
+      [kegiatan_id, jumlah, jumlahPerUndi]
     );
-    return NextResponse.json({ jumlah_hadiah: jumlah });
+    return NextResponse.json({ jumlah_hadiah: jumlah, jumlah_per_undi: jumlahPerUndi });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Gagal menyimpan setup" }, { status: 500 });

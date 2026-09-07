@@ -81,17 +81,29 @@ export interface KasSummary {
 
 export const SOURCE_FUND_OPTIONS = [
   { code: "umum", label: "Umum" },
+  { code: "donasi", label: "Donasi" },
+  { code: "penjualan_barang", label: "Penjualan Barang" },
   { code: "iuran_anggota", label: "Iuran Arisan Anggota" },
   { code: "iuran_konsumsi_anggota", label: "Iuran Konsumsi Anggota" },
   { code: "iuran_pengurus", label: "Iuran Pengurus" },
 ] as const;
 
 export type SourceFundCode = (typeof SOURCE_FUND_OPTIONS)[number]["code"];
+type IuranSourceFundCode = "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
 
 export interface DanaIuranBalance {
-  code: Exclude<SourceFundCode, "umum">;
+  code: IuranSourceFundCode;
   name: string;
   category_code: "IURAN_ANGGOTA" | "IURAN_KONSUMSI_ANGGOTA" | "IURAN_PENGURUS";
+  saldo_awal: number;
+  total_pemasukan: number;
+  total_pengeluaran: number;
+  saldo_akhir: number;
+}
+
+export interface SourceFundBalance {
+  code: SourceFundCode;
+  name: string;
   saldo_awal: number;
   total_pemasukan: number;
   total_pengeluaran: number;
@@ -110,7 +122,13 @@ const DANA_IURAN_DEFS: Array<{
 
 const VALID_SOURCE_FUNDS = new Set<string>(SOURCE_FUND_OPTIONS.map((item) => item.code));
 
-interface DanaIuranAggregateRow extends RowDataPacket {
+interface SourceFundAggregateRow extends RowDataPacket {
+  in_umum: number | string | null;
+  out_umum: number | string | null;
+  in_donasi: number | string | null;
+  out_donasi: number | string | null;
+  in_penjualan_barang: number | string | null;
+  out_penjualan_barang: number | string | null;
   in_iuran_anggota: number | string | null;
   out_iuran_anggota: number | string | null;
   in_iuran_konsumsi_anggota: number | string | null;
@@ -180,7 +198,7 @@ export async function ensureKasExpenseCategories() {
   await ensureKasExpenseCategoriesPromise;
 }
 
-async function getDanaIuranAggregate(filter?: { from?: string; to?: string; before?: boolean }) {
+async function getSourceFundAggregate(filter?: { from?: string; to?: string; before?: boolean }) {
   await ensureKasSourceFundColumn();
 
   const where: string[] = ["t.status='approved'"];
@@ -192,6 +210,9 @@ async function getDanaIuranAggregate(filter?: { from?: string; to?: string; befo
       args.push(filter.from);
     } else {
       return {
+        umum: { pemasukan: 0, pengeluaran: 0 },
+        donasi: { pemasukan: 0, pengeluaran: 0 },
+        penjualan_barang: { pemasukan: 0, pengeluaran: 0 },
         iuran_anggota: { pemasukan: 0, pengeluaran: 0 },
         iuran_konsumsi_anggota: { pemasukan: 0, pengeluaran: 0 },
         iuran_pengurus: { pemasukan: 0, pengeluaran: 0 },
@@ -208,8 +229,21 @@ async function getDanaIuranAggregate(filter?: { from?: string; to?: string; befo
     }
   }
 
-  const [[row]] = await pool.execute<DanaIuranAggregateRow[]>(
+  const [[row]] = await pool.execute<SourceFundAggregateRow[]>(
     `SELECT
+       COALESCE(SUM(CASE
+         WHEN t.type='income'
+          AND c.code NOT IN ('DONASI', 'PENJUALAN_BARANG', 'IURAN_ANGGOTA', 'IURAN_KONSUMSI_ANGGOTA', 'IURAN_PENGURUS')
+         THEN t.amount ELSE 0 END), 0) AS in_umum,
+       COALESCE(SUM(CASE
+         WHEN t.type='expense'
+          AND (t.source_fund='umum' OR t.source_fund IS NULL OR t.source_fund='')
+          AND c.code NOT IN ('ARISAN_ANGGOTA', 'ARISAN_PENGURUS')
+         THEN t.amount ELSE 0 END), 0) AS out_umum,
+       COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='DONASI' THEN t.amount ELSE 0 END), 0) AS in_donasi,
+       COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='donasi' THEN t.amount ELSE 0 END), 0) AS out_donasi,
+       COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='PENJUALAN_BARANG' THEN t.amount ELSE 0 END), 0) AS in_penjualan_barang,
+       COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='penjualan_barang' THEN t.amount ELSE 0 END), 0) AS out_penjualan_barang,
        COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='IURAN_ANGGOTA' THEN t.amount ELSE 0 END), 0) AS in_iuran_anggota,
        COALESCE(SUM(CASE WHEN t.type='expense' AND (t.source_fund='iuran_anggota' OR c.code='ARISAN_ANGGOTA') THEN t.amount ELSE 0 END), 0) AS out_iuran_anggota,
        COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='IURAN_KONSUMSI_ANGGOTA' THEN t.amount ELSE 0 END), 0) AS in_iuran_konsumsi_anggota,
@@ -223,6 +257,18 @@ async function getDanaIuranAggregate(filter?: { from?: string; to?: string; befo
   );
 
   return {
+    umum: {
+      pemasukan: Number(row.in_umum ?? 0),
+      pengeluaran: Number(row.out_umum ?? 0),
+    },
+    donasi: {
+      pemasukan: Number(row.in_donasi ?? 0),
+      pengeluaran: Number(row.out_donasi ?? 0),
+    },
+    penjualan_barang: {
+      pemasukan: Number(row.in_penjualan_barang ?? 0),
+      pengeluaran: Number(row.out_penjualan_barang ?? 0),
+    },
     iuran_anggota: {
       pemasukan: Number(row.in_iuran_anggota ?? 0),
       pengeluaran: Number(row.out_iuran_anggota ?? 0),
@@ -238,29 +284,49 @@ async function getDanaIuranAggregate(filter?: { from?: string; to?: string; befo
   };
 }
 
-export async function getDanaIuranBalances(filter?: { from?: string; to?: string }): Promise<DanaIuranBalance[]> {
+export async function getSourceFundBalances(filter?: { from?: string; to?: string }): Promise<SourceFundBalance[]> {
   const [awal, periode] = await Promise.all([
-    filter?.from ? getDanaIuranAggregate({ from: filter.from, before: true }) : Promise.resolve({
+    filter?.from ? getSourceFundAggregate({ from: filter.from, before: true }) : Promise.resolve({
+      umum: { pemasukan: 0, pengeluaran: 0 },
+      donasi: { pemasukan: 0, pengeluaran: 0 },
+      penjualan_barang: { pemasukan: 0, pengeluaran: 0 },
       iuran_anggota: { pemasukan: 0, pengeluaran: 0 },
       iuran_konsumsi_anggota: { pemasukan: 0, pengeluaran: 0 },
       iuran_pengurus: { pemasukan: 0, pengeluaran: 0 },
     }),
-    getDanaIuranAggregate({ from: filter?.from, to: filter?.to }),
+    getSourceFundAggregate({ from: filter?.from, to: filter?.to }),
   ]);
 
-  return DANA_IURAN_DEFS.map((item) => {
+  return SOURCE_FUND_OPTIONS.map((item) => {
     const awalDana = awal[item.code].pemasukan - awal[item.code].pengeluaran;
     const totalPemasukan = periode[item.code].pemasukan;
     const totalPengeluaran = periode[item.code].pengeluaran;
 
     return {
       code: item.code,
-      name: item.name,
-      category_code: item.category_code,
+      name: item.label,
       saldo_awal: awalDana,
       total_pemasukan: totalPemasukan,
       total_pengeluaran: totalPengeluaran,
       saldo_akhir: awalDana + totalPemasukan - totalPengeluaran,
+    };
+  });
+}
+
+export async function getDanaIuranBalances(filter?: { from?: string; to?: string }): Promise<DanaIuranBalance[]> {
+  const sourceFunds = await getSourceFundBalances(filter);
+
+  return DANA_IURAN_DEFS.map((item) => {
+    const sourceFund = sourceFunds.find((fund) => fund.code === item.code);
+
+    return {
+      code: item.code,
+      name: item.name,
+      category_code: item.category_code,
+      saldo_awal: sourceFund?.saldo_awal ?? 0,
+      total_pemasukan: sourceFund?.total_pemasukan ?? 0,
+      total_pengeluaran: sourceFund?.total_pengeluaran ?? 0,
+      saldo_akhir: sourceFund?.saldo_akhir ?? 0,
     };
   });
 }

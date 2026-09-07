@@ -3,11 +3,13 @@ import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
 import { buildCurrentActiveCondition, ensureAnggotaSchema } from "@/lib/anggota";
+import { ensureArisanSetupSchema } from "@/lib/arisan";
 
 // GET /api/arisan/[kegiatan_id] — setup + winners
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
   try {
     await ensureAnggotaSchema();
+    await ensureArisanSetupSchema();
 
     const { kegiatan_id } = await params;
 
@@ -20,7 +22,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ keg
     }
 
     const [setupRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT nominal_per_orang, jumlah_pemenang FROM arisan_setup WHERE kegiatan_id = ?`,
+      `SELECT nominal_per_orang, jumlah_pemenang, jumlah_per_undi FROM arisan_setup WHERE kegiatan_id = ?`,
       [kegiatan_id]
     );
 
@@ -119,16 +121,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ kegi
   try {
     const { response } = await requireAdmin(req);
     if (response) return response;
+    await ensureArisanSetupSchema();
+
     const { kegiatan_id } = await params;
     const body = await req.json();
     const nominal = Number(body.nominal_per_orang ?? 0);
     const jumlah = Math.max(1, Number(body.jumlah_pemenang ?? 1));
+    const jumlahPerUndi = Math.max(1, Number(body.jumlah_per_undi ?? 10));
 
     if (!Number.isFinite(nominal) || nominal < 0) {
       return NextResponse.json({ error: "Nominal tidak valid" }, { status: 400 });
     }
     if (!Number.isFinite(jumlah) || jumlah < 1) {
       return NextResponse.json({ error: "Jumlah pemenang tidak valid" }, { status: 400 });
+    }
+    if (!Number.isFinite(jumlahPerUndi) || jumlahPerUndi < 1) {
+      return NextResponse.json({ error: "Jumlah pemenang per pengundian tidak valid" }, { status: 400 });
     }
 
     const [kegRows] = await pool.execute<RowDataPacket[]>(
@@ -140,13 +148,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ kegi
     }
 
     await pool.execute<ResultSetHeader>(
-      `INSERT INTO arisan_setup (kegiatan_id, nominal_per_orang, jumlah_pemenang)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE nominal_per_orang = VALUES(nominal_per_orang), jumlah_pemenang = VALUES(jumlah_pemenang)`,
-      [kegiatan_id, nominal, jumlah]
+      `INSERT INTO arisan_setup (kegiatan_id, nominal_per_orang, jumlah_pemenang, jumlah_per_undi)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         nominal_per_orang = VALUES(nominal_per_orang),
+         jumlah_pemenang = VALUES(jumlah_pemenang),
+         jumlah_per_undi = VALUES(jumlah_per_undi)`,
+      [kegiatan_id, nominal, jumlah, jumlahPerUndi]
     );
 
-    return NextResponse.json({ message: "Setup arisan tersimpan" });
+    return NextResponse.json({
+      message: "Setup arisan tersimpan",
+      jumlah_pemenang: jumlah,
+      jumlah_per_undi: jumlahPerUndi,
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Gagal menyimpan setup" }, { status: 500 });

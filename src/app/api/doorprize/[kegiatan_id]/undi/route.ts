@@ -4,6 +4,7 @@ import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
 import { requireAdmin } from "@/lib/admin-auth";
 import { ensureAnggotaSchema } from "@/lib/anggota";
+import { ensureDoorprizeSetupSchema } from "@/lib/doorprize";
 
 interface DoorprizeCandidateRow extends RowDataPacket {
   peserta_tipe: "anggota" | "tamu";
@@ -26,7 +27,7 @@ function pickRandomBatch<T>(items: T[], count: number): T[] {
   return shuffled.slice(0, count);
 }
 
-// POST /api/doorprize/[kegiatan_id]/undi — auto-undian maksimal 10 pemenang doorprize per putaran
+// POST /api/doorprize/[kegiatan_id]/undi — auto-undian sesuai setup pemenang per putaran
 export async function POST(req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
   let conn: PoolConnection | undefined;
   try {
@@ -35,13 +36,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
     const { kegiatan_id } = await params;
 
     await ensureAnggotaSchema();
+    await ensureDoorprizeSetupSchema();
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
     // Check setup
     const [setupRows] = await conn.execute<RowDataPacket[]>(
-      `SELECT jumlah_hadiah FROM doorprize_setup WHERE kegiatan_id = ?`,
+      `SELECT jumlah_hadiah, jumlah_per_undi FROM doorprize_setup WHERE kegiatan_id = ?`,
       [kegiatan_id]
     );
     if (setupRows.length === 0) {
@@ -49,6 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
       return NextResponse.json({ error: "Setup doorprize belum dikonfigurasi" }, { status: 400 });
     }
     const jumlahHadiah: number = setupRows[0].jumlah_hadiah;
+    const jumlahPerUndi = Math.max(1, Number(setupRows[0].jumlah_per_undi ?? 10));
 
     // Count current winners
     const [cntRows] = await conn.execute<RowDataPacket[]>(
@@ -59,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
 
     if (currentCount >= jumlahHadiah) {
       await conn.rollback();
-      return NextResponse.json({ error: "Semua hadiah sudah terisi" }, { status: 400 });
+      return NextResponse.json({ error: "Pengundian sudah habis. Semua hadiah sudah memiliki pemenang." }, { status: 400 });
     }
 
     const [candidateRows] = await conn.execute<DoorprizeCandidateRow[]>(
@@ -112,11 +115,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
 
     if (candidateRows.length === 0) {
       await conn.rollback();
-      return NextResponse.json({ error: "Tidak ada peserta yang hadir dan belum menang doorprize" }, { status: 400 });
+      return NextResponse.json({ error: "Pengundian sudah habis. Tidak ada peserta yang hadir dan belum menang doorprize." }, { status: 400 });
     }
 
     const remainingSlots = jumlahHadiah - currentCount;
-    const drawCount = Math.min(10, remainingSlots, candidateRows.length);
+    const drawCount = Math.min(jumlahPerUndi, remainingSlots, candidateRows.length);
     const pickedWinners = pickRandomBatch(candidateRows, drawCount);
 
     const createdWinners = [];

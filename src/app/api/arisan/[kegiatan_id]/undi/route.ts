@@ -1,28 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import type { PoolConnection } from "mysql2/promise";
 import { requireAdmin } from "@/lib/admin-auth";
 import { buildCurrentActiveCondition, ensureAnggotaSchema } from "@/lib/anggota";
+import { ensureArisanSetupSchema } from "@/lib/arisan";
 
-// POST /api/arisan/[kegiatan_id]/undi — undi 1 pemenang acak (yang belum pernah menang di kegiatan ini)
+interface ArisanCandidateRow extends RowDataPacket {
+  id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  foto: string | null;
+}
+
+function pickRandomBatch<T>(items: T[], count: number): T[] {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, count);
+}
+
+// POST /api/arisan/[kegiatan_id]/undi — undi sesuai setup pemenang per putaran
 export async function POST(req: NextRequest, { params }: { params: Promise<{ kegiatan_id: string }> }) {
+  let conn: PoolConnection | undefined;
   try {
     const { response } = await requireAdmin(req);
     if (response) return response;
     const { kegiatan_id } = await params;
 
     await ensureAnggotaSchema();
+    await ensureArisanSetupSchema();
 
-    const [setupRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT jumlah_pemenang FROM arisan_setup WHERE kegiatan_id = ?`,
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [setupRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT jumlah_pemenang, jumlah_per_undi FROM arisan_setup WHERE kegiatan_id = ?`,
       [kegiatan_id]
     );
     if (setupRows.length === 0) {
+      await conn.rollback();
       return NextResponse.json({ error: "Setup arisan belum dibuat" }, { status: 400 });
     }
     const jumlahPemenang = Number(setupRows[0].jumlah_pemenang);
+    const jumlahPerUndi = Math.max(1, Number(setupRows[0].jumlah_per_undi ?? 10));
 
-    const [winnerCountRows] = await pool.execute<RowDataPacket[]>(
+    const [winnerCountRows] = await conn.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS total, COALESCE(MAX(urutan), 0) AS max_urutan
        FROM arisan_winners WHERE kegiatan_id = ?`,
       [kegiatan_id]
@@ -31,8 +58,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
     const maxUrutan = Number(winnerCountRows[0].max_urutan);
 
     if (totalWinners >= jumlahPemenang) {
+      await conn.rollback();
       return NextResponse.json(
-        { error: `Jatah pemenang (${jumlahPemenang}) sudah penuh` },
+        { error: "Pengundian sudah habis. Semua jatah pemenang sudah terisi." },
         { status: 400 }
       );
     }
@@ -41,7 +69,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
     // 1. Hadir di kegiatan ini (ada di presensi)
     // 2. Belum jadi pemenang arisan di kegiatan ini
     // 3. Belum pernah menang arisan di tahun yang sama dengan kegiatan ini
-    const [pickRows] = await pool.execute<RowDataPacket[]>(
+    const [candidateRows] = await conn.execute<ArisanCandidateRow[]>(
       `SELECT a.id, a.nama, a.nip, a.jabatan, a.unit_kerja,
               (
                 SELECT p.foto
@@ -66,29 +94,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
            INNER JOIN kegiatan k ON k.id = aw.kegiatan_id
            WHERE YEAR(k.tanggal) = (SELECT YEAR(tanggal) FROM kegiatan WHERE id = ?)
          )
-       ORDER BY RAND()
-       LIMIT 1`,
+       ORDER BY a.nama ASC`,
       [kegiatan_id, kegiatan_id, kegiatan_id, kegiatan_id]
     );
 
-    if (pickRows.length === 0) {
+    if (candidateRows.length === 0) {
+      await conn.rollback();
       return NextResponse.json(
-        { error: "Tidak ada peserta yang hadir dan memenuhi syarat untuk diundi" },
+        { error: "Pengundian sudah habis. Tidak ada peserta yang hadir dan memenuhi syarat untuk diundi." },
         { status: 400 }
       );
     }
 
-    const picked = pickRows[0];
-    const urutan = maxUrutan + 1;
+    const remainingSlots = jumlahPemenang - totalWinners;
+    const drawCount = Math.min(jumlahPerUndi, remainingSlots, candidateRows.length);
+    const pickedWinners = pickRandomBatch(candidateRows, drawCount);
 
-    const [ins] = await pool.execute<ResultSetHeader>(
-      `INSERT INTO arisan_winners (kegiatan_id, anggota_id, urutan) VALUES (?, ?, ?)`,
-      [kegiatan_id, picked.id, urutan]
-    );
+    const createdWinners = [];
+    for (const [index, picked] of pickedWinners.entries()) {
+      const urutan = maxUrutan + index + 1;
 
-    return NextResponse.json({
-      message: "Pemenang terpilih",
-      winner: {
+      const [ins] = await conn.execute<ResultSetHeader>(
+        `INSERT INTO arisan_winners (kegiatan_id, anggota_id, urutan) VALUES (?, ?, ?)`,
+        [kegiatan_id, picked.id, urutan]
+      );
+
+      createdWinners.push({
         id: ins.insertId,
         anggota_id: picked.id,
         nama: picked.nama,
@@ -97,10 +128,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
         unit_kerja: picked.unit_kerja,
         foto: picked.foto ?? null,
         urutan,
-      },
+      });
+    }
+
+    await conn.commit();
+
+    return NextResponse.json({
+      message: "Pemenang terpilih",
+      winners: createdWinners,
+      draw_count: createdWinners.length,
     });
   } catch (err) {
+    if (conn) await conn.rollback();
     console.error(err);
     return NextResponse.json({ error: "Gagal mengundi" }, { status: 500 });
+  } finally {
+    conn?.release();
   }
 }

@@ -79,7 +79,9 @@ run_sql "$SCRIPTS_DIR/migrate-anggota-status-keanggotaan.sql"
 
 # 7. Arisan & doorprize
 run_sql "$SCRIPTS_DIR/setup-undian.sql"
+run_sql "$SCRIPTS_DIR/migrate-arisan-jumlah-per-undi.sql"
 run_sql "$SCRIPTS_DIR/migrate-doorprize-peserta.sql"
+run_sql "$SCRIPTS_DIR/migrate-doorprize-jumlah-per-undi.sql"
 
 # 8. Sistem Kas (cash management)
 run_sql "$SCRIPTS_DIR/setup-kas.sql"

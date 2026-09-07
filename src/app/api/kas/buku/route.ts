@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { ensureKasSourceFundColumn, getDanaIuranBalances, getSourceFundLabel, requireSession } from "@/lib/kas";
+import { ensureKasSourceFundColumn, getDanaIuranBalances, getSourceFundBalances, getSourceFundLabel, requireSession } from "@/lib/kas";
 import type { RowDataPacket } from "mysql2";
 
 // GET /api/kas/buku?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     saldoAwal = Number(row.saldo);
   }
 
-  const [rows, danaIuran] = await Promise.all([
+  const [rows, danaIuran, sourceFunds] = await Promise.all([
     pool.execute<RowDataPacket[]>(
     `SELECT t.id, t.transaction_number, t.transaction_date, t.type, t.amount,
             t.description, t.payment_method, t.reference_number,
@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
     args
     ).then(([result]) => result),
     getDanaIuranBalances({ from: from ?? undefined, to: to ?? undefined }),
+    getSourceFundBalances({ from: from ?? undefined, to: to ?? undefined }),
   ]);
 
   let running = saldoAwal;
@@ -82,6 +83,7 @@ export async function GET(req: NextRequest) {
     saldo_akhir: running,
     total_debit: totalDebit,
     total_kredit: totalKredit,
+    sumber_dana: sourceFunds,
     dana_iuran: danaIuran,
     data,
   });

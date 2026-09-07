@@ -15,6 +15,15 @@ interface Trx {
 interface Lap {
   periode: { bulan: number; tahun: number; awal: string; akhir: string; label: string };
   saldo_awal: number; saldo_akhir: number; total_income: number; total_expense: number;
+  total_saldo_akhir: {
+    tanggal: string;
+    donasi: number;
+    penjualan_barang: number;
+    iuran_arisan: number;
+    iuran_konsumsi: number;
+    iuran_pengurus: number;
+    total: number;
+  };
   dana_iuran: DanaIuran[];
   rekap_pemasukan: Rekap[]; rekap_pengeluaran: Rekap[]; transaksi: Trx[];
 }
@@ -59,6 +68,15 @@ export default function LaporanKasPage() {
     lines.push(["Total Pemasukan", String(data.total_income)]);
     lines.push(["Total Pengeluaran", String(data.total_expense)]);
     lines.push(["Saldo Akhir", String(data.saldo_akhir)]);
+    lines.push([""]);
+    lines.push(["TOTAL SALDO AKHIR"]);
+    lines.push(["Tanggal Hitung", data.total_saldo_akhir.tanggal]);
+    lines.push(["Donasi", String(data.total_saldo_akhir.donasi)]);
+    lines.push(["Penjualan Barang", String(data.total_saldo_akhir.penjualan_barang)]);
+    lines.push(["Iuran Arisan", String(data.total_saldo_akhir.iuran_arisan)]);
+    lines.push(["Iuran Konsumsi", String(data.total_saldo_akhir.iuran_konsumsi)]);
+    lines.push(["Iuran Pengurus", String(data.total_saldo_akhir.iuran_pengurus)]);
+    lines.push(["Total Saldo Akhir", String(data.total_saldo_akhir.total)]);
     lines.push([""]);
     lines.push(["SALDO DANA IURAN"]);
     lines.push(["Dana", "Saldo Awal", "Pemasukan", "Pengeluaran", "Saldo Akhir"]);
@@ -131,6 +149,21 @@ export default function LaporanKasPage() {
                 <div className="p-4 bg-tertiary-container/30 rounded-xl"><p className="text-label-sm text-on-surface-variant">Pemasukan</p><p className="font-h3 text-h3 text-tertiary">{fmt(data.total_income)}</p></div>
                 <div className="p-4 bg-error-container/30 rounded-xl"><p className="text-label-sm text-on-surface-variant">Pengeluaran</p><p className="font-h3 text-h3 text-error">{fmt(data.total_expense)}</p></div>
                 <div className="p-4 bg-primary-container/30 rounded-xl"><p className="text-label-sm text-on-surface-variant">Saldo Akhir</p><p className="font-h3 text-h3 text-primary">{fmt(data.saldo_akhir)}</p></div>
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                <h4 className="font-label-md text-on-surface uppercase tracking-wide">Total Saldo Akhir</h4>
+                <span className="text-label-sm text-on-surface-variant">{data.total_saldo_akhir.tanggal}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Donasi</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.donasi)}</p></div>
+                <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Penjualan Barang</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.penjualan_barang)}</p></div>
+                <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Iuran Arisan</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.iuran_arisan)}</p></div>
+                <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Iuran Konsumsi</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.iuran_konsumsi)}</p></div>
+                <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Iuran Pengurus</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.iuran_pengurus)}</p></div>
+                <div className="p-4 bg-primary-container/30 rounded-xl"><p className="text-label-sm text-on-surface-variant">Total Saldo Akhir</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.total)}</p></div>
               </div>
             </Card>
 
