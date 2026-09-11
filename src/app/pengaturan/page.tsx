@@ -53,6 +53,12 @@ const FIELDS: { key: string; label: string; placeholder?: string; hint?: string 
     hint: "Contoh: DWP → nomor surat menjadi DWP/001/V/2026",
   },
   {
+    key: "tanggal_serah_terima_iuran",
+    label: "Tanggal Serah Terima Iuran",
+    placeholder: "2026-05-01",
+    hint: "Dipakai sebagai periode awal bawaan pada laporan rekap kas iuran.",
+  },
+  {
     key: "saldo_awal_arisan_anggota_mei_2026",
     label: "Saldo Awal Arisan Anggota Mei 2026",
     placeholder: "0",

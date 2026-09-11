@@ -29,6 +29,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Transaksi Kas", href: "/kas/transaksi", icon: "receipt_long" },
       { label: "Buku Kas", href: "/kas/buku", icon: "menu_book" },
       { label: "Posting Iuran", href: "/kas/posting-iuran", icon: "post_add" },
+      { label: "Rekap Iuran", href: "/kas/rekap-iuran", icon: "request_quote" },
       { label: "Penjualan Barang", href: "/kas/penjualan", icon: "storefront" },
       { label: "Kategori Kas", href: "/kas/kategori", icon: "category" },
       { label: "Laporan Bulanan", href: "/kas/laporan", icon: "summarize" },

@@ -19,4 +19,5 @@ INSERT IGNORE INTO app_settings (key_name, value, label) VALUES
   ('undangan_kepada',   'Pengurus & Anggota DWP',                   'Default Kepada (Undangan)'),
   ('undangan_jabatan',  'Ketua',                                     'Default Jabatan Penandatangan'),
   ('undangan_nomor_prefix', 'DWP',                                  'Prefix Nomor Surat'),
+  ('tanggal_serah_terima_iuran', '2026-05-01',                      'Tanggal Serah Terima Iuran'),
   ('saldo_awal_arisan_anggota_mei_2026', '0',                       'Saldo Awal Arisan Anggota Mei 2026');
