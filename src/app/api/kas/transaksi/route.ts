@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
 
     const autoSourceFund = getAutoSourceFundByCategoryCode(String(cat.code));
     const sourceFund = type === "expense"
-      ? (autoSourceFund ?? (isValidSourceFund(sourceFundRaw) ? sourceFundRaw : "umum"))
+      ? (autoSourceFund ?? (isValidSourceFund(sourceFundRaw) ? sourceFundRaw : "penjualan_barang"))
       : null;
 
     const trxNumber = await generateTransactionNumber(date);

@@ -70,7 +70,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const autoSourceFund = getAutoSourceFundByCategoryCode(String(cat.code));
     const sourceFund = cat.type === "expense"
-      ? (autoSourceFund ?? (isValidSourceFund(sourceFundRaw) ? sourceFundRaw : "umum"))
+      ? (autoSourceFund ?? (isValidSourceFund(sourceFundRaw) ? sourceFundRaw : "penjualan_barang"))
       : null;
 
     await pool.execute<ResultSetHeader>(

@@ -6,10 +6,9 @@ import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { FetchErrorRow } from "@/components/ui/FetchError";
 
-type SourceFundCode = "umum" | "donasi" | "penjualan_barang" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
+type SourceFundCode = "donasi" | "penjualan_barang" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
 
 const SOURCE_FUND_OPTIONS: { code: SourceFundCode; label: string }[] = [
-  { code: "umum", label: "Umum" },
   { code: "donasi", label: "Donasi" },
   { code: "penjualan_barang", label: "Penjualan Barang" },
   { code: "iuran_anggota", label: "Iuran Arisan Anggota" },
@@ -17,7 +16,10 @@ const SOURCE_FUND_OPTIONS: { code: SourceFundCode; label: string }[] = [
   { code: "iuran_pengurus", label: "Iuran Pengurus" },
 ];
 
-const getSourceFundLabel = (code?: string | null) => SOURCE_FUND_OPTIONS.find((item) => item.code === code)?.label ?? "Umum";
+const getSourceFundLabel = (code?: string | null) => {
+  if (!code || code === "umum") return "Penjualan Barang";
+  return SOURCE_FUND_OPTIONS.find((item) => item.code === code)?.label ?? "Penjualan Barang";
+};
 const getAutoSourceFundByCategoryCode = (categoryCode?: string | null): SourceFundCode | null => {
   if (categoryCode === "ARISAN_ANGGOTA") return "iuran_anggota";
   if (categoryCode === "ARISAN_PENGURUS") return "iuran_pengurus";
@@ -30,7 +32,7 @@ interface Trx {
   amount: number | string; payment_method: string; description: string | null;
   reference_number: string | null; status: "draft" | "pending" | "approved" | "rejected" | "cancelled";
   source_type: string | null; source_id: string | null;
-  source_fund?: SourceFundCode | null;
+  source_fund?: SourceFundCode | "umum" | null;
   created_by_username: string | null; approved_by_username: string | null;
 }
 interface Category { id: number; code: string; name: string; type: "income" | "expense" }
@@ -46,7 +48,7 @@ const PAY_METHODS = ["Tunai", "Transfer", "QRIS", "Lainnya"] as const;
 const emptyForm = {
   id: 0, transaction_date: today(), type: "expense" as "income" | "expense",
   category_id: 0, amount: "", payment_method: "Tunai" as string, description: "", reference_number: "",
-  source_fund: "umum" as SourceFundCode,
+  source_fund: "penjualan_barang" as SourceFundCode,
 };
 
 export default function KasTransaksiPage() {
@@ -129,7 +131,7 @@ export default function KasTransaksiPage() {
       id: t.id, transaction_date: t.transaction_date, type: t.type,
       category_id: t.category_id, amount: String(t.amount),
       payment_method: t.payment_method, description: t.description ?? "", reference_number: t.reference_number ?? "",
-      source_fund: t.source_fund ?? "umum",
+      source_fund: t.source_fund === "umum" ? "penjualan_barang" : t.source_fund ?? "penjualan_barang",
     });
     setModal("edit");
   };

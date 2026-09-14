@@ -80,7 +80,6 @@ export interface KasSummary {
 }
 
 export const SOURCE_FUND_OPTIONS = [
-  { code: "umum", label: "Umum" },
   { code: "donasi", label: "Donasi" },
   { code: "penjualan_barang", label: "Penjualan Barang" },
   { code: "iuran_anggota", label: "Iuran Arisan Anggota" },
@@ -123,8 +122,6 @@ const DANA_IURAN_DEFS: Array<{
 const VALID_SOURCE_FUNDS = new Set<string>(SOURCE_FUND_OPTIONS.map((item) => item.code));
 
 interface SourceFundAggregateRow extends RowDataPacket {
-  in_umum: number | string | null;
-  out_umum: number | string | null;
   in_donasi: number | string | null;
   out_donasi: number | string | null;
   in_penjualan_barang: number | string | null;
@@ -147,7 +144,8 @@ export function isValidSourceFund(value: unknown): value is SourceFundCode {
 }
 
 export function getSourceFundLabel(code?: string | null): string {
-  return SOURCE_FUND_OPTIONS.find((item) => item.code === code)?.label ?? "Umum";
+  if (!code || code === "umum") return "Penjualan Barang";
+  return SOURCE_FUND_OPTIONS.find((item) => item.code === code)?.label ?? "Penjualan Barang";
 }
 
 export function getAutoSourceFundByCategoryCode(categoryCode?: string | null): SourceFundCode | null {
@@ -168,7 +166,7 @@ export async function ensureKasSourceFundColumn() {
         );
         await pool.execute(
           `UPDATE cash_transactions
-              SET source_fund='umum'
+              SET source_fund='penjualan_barang'
             WHERE type='expense' AND (source_fund IS NULL OR source_fund='')`
         );
       }
@@ -210,7 +208,6 @@ async function getSourceFundAggregate(filter?: { from?: string; to?: string; bef
       args.push(filter.from);
     } else {
       return {
-        umum: { pemasukan: 0, pengeluaran: 0 },
         donasi: { pemasukan: 0, pengeluaran: 0 },
         penjualan_barang: { pemasukan: 0, pengeluaran: 0 },
         iuran_anggota: { pemasukan: 0, pengeluaran: 0 },
@@ -231,19 +228,17 @@ async function getSourceFundAggregate(filter?: { from?: string; to?: string; bef
 
   const [[row]] = await pool.execute<SourceFundAggregateRow[]>(
     `SELECT
-       COALESCE(SUM(CASE
-         WHEN t.type='income'
-          AND c.code NOT IN ('DONASI', 'PENJUALAN_BARANG', 'IURAN_ANGGOTA', 'IURAN_KONSUMSI_ANGGOTA', 'IURAN_PENGURUS')
-         THEN t.amount ELSE 0 END), 0) AS in_umum,
-       COALESCE(SUM(CASE
-         WHEN t.type='expense'
-          AND (t.source_fund='umum' OR t.source_fund IS NULL OR t.source_fund='')
-          AND c.code NOT IN ('ARISAN_ANGGOTA', 'ARISAN_PENGURUS')
-         THEN t.amount ELSE 0 END), 0) AS out_umum,
        COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='DONASI' THEN t.amount ELSE 0 END), 0) AS in_donasi,
        COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='donasi' THEN t.amount ELSE 0 END), 0) AS out_donasi,
-       COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='PENJUALAN_BARANG' THEN t.amount ELSE 0 END), 0) AS in_penjualan_barang,
-       COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='penjualan_barang' THEN t.amount ELSE 0 END), 0) AS out_penjualan_barang,
+       COALESCE(SUM(CASE
+         WHEN t.type='income'
+          AND c.code NOT IN ('DONASI', 'IURAN_ANGGOTA', 'IURAN_KONSUMSI_ANGGOTA', 'IURAN_PENGURUS')
+         THEN t.amount ELSE 0 END), 0) AS in_penjualan_barang,
+       COALESCE(SUM(CASE
+         WHEN t.type='expense'
+          AND (t.source_fund='penjualan_barang' OR t.source_fund='umum' OR t.source_fund IS NULL OR t.source_fund='')
+          AND c.code NOT IN ('ARISAN_ANGGOTA', 'ARISAN_PENGURUS')
+         THEN t.amount ELSE 0 END), 0) AS out_penjualan_barang,
        COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='IURAN_ANGGOTA' THEN t.amount ELSE 0 END), 0) AS in_iuran_anggota,
        COALESCE(SUM(CASE WHEN t.type='expense' AND (t.source_fund='iuran_anggota' OR c.code='ARISAN_ANGGOTA') THEN t.amount ELSE 0 END), 0) AS out_iuran_anggota,
        COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='IURAN_KONSUMSI_ANGGOTA' THEN t.amount ELSE 0 END), 0) AS in_iuran_konsumsi_anggota,
@@ -257,10 +252,6 @@ async function getSourceFundAggregate(filter?: { from?: string; to?: string; bef
   );
 
   return {
-    umum: {
-      pemasukan: Number(row.in_umum ?? 0),
-      pengeluaran: Number(row.out_umum ?? 0),
-    },
     donasi: {
       pemasukan: Number(row.in_donasi ?? 0),
       pengeluaran: Number(row.out_donasi ?? 0),
@@ -287,7 +278,6 @@ async function getSourceFundAggregate(filter?: { from?: string; to?: string; bef
 export async function getSourceFundBalances(filter?: { from?: string; to?: string }): Promise<SourceFundBalance[]> {
   const [awal, periode] = await Promise.all([
     filter?.from ? getSourceFundAggregate({ from: filter.from, before: true }) : Promise.resolve({
-      umum: { pemasukan: 0, pengeluaran: 0 },
       donasi: { pemasukan: 0, pengeluaran: 0 },
       penjualan_barang: { pemasukan: 0, pengeluaran: 0 },
       iuran_anggota: { pemasukan: 0, pengeluaran: 0 },

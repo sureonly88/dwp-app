@@ -18,6 +18,10 @@ EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
 UPDATE cash_transactions
-SET source_fund = 'umum'
+SET source_fund = 'penjualan_barang'
 WHERE type = 'expense'
   AND (source_fund IS NULL OR source_fund = '');
+
+UPDATE cash_transactions
+SET source_fund = 'penjualan_barang'
+WHERE source_fund = 'umum';

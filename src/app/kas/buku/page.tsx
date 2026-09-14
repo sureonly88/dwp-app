@@ -152,7 +152,7 @@ export default function BukuKasPage() {
                         <td className="px-4 py-2 whitespace-nowrap">{r.transaction_date}</td>
                         <td className="px-4 py-2 font-mono text-[12px]">{r.transaction_number}</td>
                         <td className="px-4 py-2">{r.category_name}</td>
-                        <td className="px-4 py-2 text-on-surface-variant whitespace-nowrap">{r.type === "expense" ? (r.source_fund_label ?? "Umum") : "-"}</td>
+                        <td className="px-4 py-2 text-on-surface-variant whitespace-nowrap">{r.type === "expense" ? (r.source_fund_label ?? "Penjualan Barang") : "-"}</td>
                         <td className="px-4 py-2 text-on-surface-variant max-w-[280px] truncate">{r.description ?? "-"}</td>
                         <td className="px-4 py-2 text-right text-tertiary whitespace-nowrap">{r.debit > 0 ? fmt(r.debit) : "-"}</td>
                         <td className="px-4 py-2 text-right text-error whitespace-nowrap">{r.kredit > 0 ? fmt(r.kredit) : "-"}</td>
