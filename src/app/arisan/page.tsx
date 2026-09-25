@@ -60,6 +60,28 @@ interface AnggotaOption {
   status: "Aktif" | "Non-Aktif" | "Cuti";
 }
 
+interface BelumMenerimaArisan {
+  id: number;
+  nama: string;
+  nip: string;
+  jabatan: string;
+  unit_kerja: string;
+  status_keanggotaan: string;
+  no_hp: string | null;
+  email: string | null;
+}
+
+interface BelumMenerimaSummary {
+  tahun: number;
+  bulan: number;
+  awal: string;
+  akhir: string;
+  label: string;
+  total_belum_menerima: number;
+  total_anggota_eligible: number;
+  total_sudah_menerima: number;
+}
+
 type SpinState = "idle" | "running" | "stopping";
 
 function formatTanggal(s: string) {
@@ -157,7 +179,7 @@ export default function ArisanPage() {
   };
 
   // Page tabs
-  const [pageTab, setPageTab] = useState<"per_kegiatan" | "manual" | "riwayat">("per_kegiatan");
+  const [pageTab, setPageTab] = useState<"per_kegiatan" | "manual" | "belum_menerima" | "riwayat">("per_kegiatan");
   const [allWinners, setAllWinners] = useState<AllWinner[]>([]);
   const [allWinnersYears, setAllWinnersYears] = useState<number[]>([]);
   const [allWinnersYear, setAllWinnersYear] = useState<string>(String(new Date().getFullYear()));
@@ -166,6 +188,13 @@ export default function ArisanPage() {
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [selectedWinnerIds, setSelectedWinnerIds] = useState<Set<number>>(() => new Set());
   const [cancellingSelected, setCancellingSelected] = useState(false);
+  const [belumMenerimaRows, setBelumMenerimaRows] = useState<BelumMenerimaArisan[]>([]);
+  const [belumMenerimaSummary, setBelumMenerimaSummary] = useState<BelumMenerimaSummary | null>(null);
+  const [belumMenerimaYear, setBelumMenerimaYear] = useState<string>(String(new Date().getFullYear()));
+  const [belumMenerimaMonth, setBelumMenerimaMonth] = useState<string>(String(new Date().getMonth() + 1));
+  const [belumMenerimaLoading, setBelumMenerimaLoading] = useState(false);
+  const [downloadingBelumMenerimaExcel, setDownloadingBelumMenerimaExcel] = useState(false);
+  const [downloadingBelumMenerimaPdf, setDownloadingBelumMenerimaPdf] = useState(false);
 
   // Manual input
   const [anggotaOptions, setAnggotaOptions] = useState<AnggotaOption[]>([]);
@@ -288,6 +317,31 @@ export default function ArisanPage() {
       fetchAllWinners();
     }
   }, [pageTab, fetchAllWinners]);
+
+  const fetchBelumMenerima = useCallback(async () => {
+    setBelumMenerimaLoading(true);
+    try {
+      const searchParams = new URLSearchParams();
+      searchParams.set("tahun", belumMenerimaYear);
+      searchParams.set("bulan", belumMenerimaMonth);
+      const res = await fetch(`/api/arisan/belum-menerima?${searchParams.toString()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setBelumMenerimaRows(json.data ?? []);
+      setBelumMenerimaSummary(json.summary ?? null);
+    } catch {
+      showToast("Gagal memuat data anggota yang belum menerima arisan", "error");
+    } finally {
+      setBelumMenerimaLoading(false);
+    }
+  }, [belumMenerimaYear, belumMenerimaMonth]);
+
+  useEffect(() => {
+    if (pageTab === "belum_menerima") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat laporan saat tab/filter berubah.
+      fetchBelumMenerima();
+    }
+  }, [pageTab, fetchBelumMenerima]);
 
   const loadDetail = useCallback(async (kegiatanId: number) => {
     setLoadingDetail(true);
@@ -746,6 +800,47 @@ export default function ArisanPage() {
     }
   };
 
+  const handleDownloadBelumMenerima = async (format: "excel" | "pdf") => {
+    const isExcel = format === "excel";
+    if (isExcel) {
+      setDownloadingBelumMenerimaExcel(true);
+    } else {
+      setDownloadingBelumMenerimaPdf(true);
+    }
+
+    try {
+      const searchParams = new URLSearchParams({
+        tahun: belumMenerimaYear,
+        bulan: belumMenerimaMonth,
+      });
+      const endpoint = isExcel
+        ? `/api/arisan/belum-menerima/export?${searchParams.toString()}`
+        : `/api/arisan/belum-menerima/pdf?${searchParams.toString()}`;
+      const res = await fetch(endpoint);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error ?? "Gagal mengunduh laporan");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const period = `${belumMenerimaYear}-${String(belumMenerimaMonth).padStart(2, "0")}`;
+      a.download = `anggota-belum-menerima-arisan-${period}.${isExcel ? "xlsx" : "pdf"}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showToast((e as Error).message ?? "Gagal mengunduh laporan", "error");
+    } finally {
+      if (isExcel) {
+        setDownloadingBelumMenerimaExcel(false);
+      } else {
+        setDownloadingBelumMenerimaPdf(false);
+      }
+    }
+  };
+
   const isSlotFull = setup ? winners.length >= setup.jumlah_pemenang : false;
   const selectedWinnerCount = selectedWinnerIds.size;
   const allWinnersSelected = winners.length > 0 && selectedWinnerCount === winners.length;
@@ -878,7 +973,7 @@ export default function ArisanPage() {
             </p>
           </div>
           {/* Tab toggle */}
-          <div className="flex rounded-lg border border-outline-variant overflow-hidden self-start md:self-end">
+          <div className="flex flex-wrap rounded-lg border border-outline-variant overflow-hidden self-start md:self-end">
             <button
               onClick={() => setPageTab("per_kegiatan")}
               className={`flex items-center gap-2 px-4 py-2.5 text-label-md transition-colors ${pageTab === "per_kegiatan" ? "bg-primary text-on-primary" : "bg-surface text-on-surface-variant hover:bg-surface-container"}`}
@@ -892,6 +987,13 @@ export default function ArisanPage() {
             >
               <span className="material-symbols-outlined text-[18px]">edit_note</span>
               Input Manual
+            </button>
+            <button
+              onClick={() => setPageTab("belum_menerima")}
+              className={`flex items-center gap-2 px-4 py-2.5 text-label-md transition-colors ${pageTab === "belum_menerima" ? "bg-primary text-on-primary" : "bg-surface text-on-surface-variant hover:bg-surface-container"}`}
+            >
+              <span className="material-symbols-outlined text-[18px]">fact_check</span>
+              Belum Menerima
             </button>
             <button
               onClick={() => setPageTab("riwayat")}
@@ -1597,6 +1699,139 @@ export default function ArisanPage() {
               </ul>
             </Card>
           </div>
+        ) : pageTab === "belum_menerima" ? (
+          <Card>
+            <div className="p-6 border-b border-outline-variant flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined material-symbols-filled text-primary text-[22px]">fact_check</span>
+                <div>
+                  <h4 className="font-h3 text-[20px] text-on-surface">Anggota Belum Menerima Arisan</h4>
+                  <p className="text-body-sm text-on-surface-variant mt-0.5">
+                    Periode Januari sampai {formatBulan(belumMenerimaMonth)} {belumMenerimaYear}.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">calendar_month</span>
+                  <select
+                    value={belumMenerimaMonth}
+                    onChange={(e) => setBelumMenerimaMonth(e.target.value)}
+                    className="appearance-none pl-9 pr-8 py-2 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none text-on-surface min-w-[140px]"
+                  >
+                    {MONTH_OPTIONS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">expand_more</span>
+                </div>
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">calendar_today</span>
+                  <select
+                    value={belumMenerimaYear}
+                    onChange={(e) => setBelumMenerimaYear(e.target.value)}
+                    className="appearance-none pl-9 pr-8 py-2 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none text-on-surface min-w-[120px]"
+                  >
+                    {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">expand_more</span>
+                </div>
+                <button
+                  onClick={() => void handleDownloadBelumMenerima("excel")}
+                  disabled={downloadingBelumMenerimaExcel || belumMenerimaLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-secondary text-secondary hover:bg-secondary-container/10 text-[12px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined text-[16px]">table_view</span>
+                  {downloadingBelumMenerimaExcel ? "Mengunduh..." : "Excel"}
+                </button>
+                <button
+                  onClick={() => void handleDownloadBelumMenerima("pdf")}
+                  disabled={downloadingBelumMenerimaPdf || belumMenerimaLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary text-primary hover:bg-primary/5 text-[12px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+                  {downloadingBelumMenerimaPdf ? "Mengunduh..." : "PDF"}
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 border-b border-outline-variant grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+                <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">Belum Menerima</p>
+                <p className="text-[24px] font-bold text-primary mt-1">
+                  {belumMenerimaSummary?.total_belum_menerima ?? 0}
+                  <span className="text-body-sm font-medium text-on-surface-variant ml-1">orang</span>
+                </p>
+              </div>
+              <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+                <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">Sudah Menerima</p>
+                <p className="text-[24px] font-bold text-secondary mt-1">
+                  {belumMenerimaSummary?.total_sudah_menerima ?? 0}
+                  <span className="text-body-sm font-medium text-on-surface-variant ml-1">orang</span>
+                </p>
+              </div>
+              <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+                <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">Total Anggota Eligible</p>
+                <p className="text-[24px] font-bold text-tertiary mt-1">
+                  {belumMenerimaSummary?.total_anggota_eligible ?? 0}
+                  <span className="text-body-sm font-medium text-on-surface-variant ml-1">orang</span>
+                </p>
+              </div>
+            </div>
+
+            {belumMenerimaLoading ? (
+              <div className="p-12 flex items-center justify-center">
+                <span className="material-symbols-outlined animate-spin text-primary text-[32px]">progress_activity</span>
+              </div>
+            ) : belumMenerimaRows.length === 0 ? (
+              <div className="py-14 text-center text-on-surface-variant">
+                <span className="material-symbols-outlined text-[56px] block mb-3 opacity-20">task_alt</span>
+                <p className="text-body-sm">Semua anggota eligible sudah menerima arisan pada periode ini.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-body-sm">
+                  <thead>
+                    <tr className="bg-surface-container border-b border-outline-variant text-on-surface-variant text-[11px] uppercase tracking-widest">
+                      <th className="px-5 py-3 text-center w-10">#</th>
+                      <th className="px-5 py-3 text-left">Nama</th>
+                      <th className="px-5 py-3 text-left">NIP</th>
+                      <th className="px-5 py-3 text-left">Jabatan</th>
+                      <th className="px-5 py-3 text-left">Unit Kerja</th>
+                      <th className="px-5 py-3 text-left">Status</th>
+                      <th className="px-5 py-3 text-left">Kontak</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/40">
+                    {belumMenerimaRows.map((row, index) => (
+                      <tr key={row.id} className="hover:bg-surface-container-low transition-colors">
+                        <td className="px-5 py-3.5 text-center">
+                          <span className="inline-flex w-7 h-7 items-center justify-center rounded-full bg-primary-fixed text-primary font-bold text-[12px]">
+                            {index + 1}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5 font-medium text-on-surface whitespace-nowrap">{row.nama}</td>
+                        <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{row.nip || "-"}</td>
+                        <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{row.jabatan || "-"}</td>
+                        <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{row.unit_kerja || "-"}</td>
+                        <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{row.status_keanggotaan || "-"}</td>
+                        <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap text-[12px]">
+                          {row.no_hp || row.email ? (
+                            <>
+                              {row.no_hp && <p>{row.no_hp}</p>}
+                              {row.email && <p>{row.email}</p>}
+                            </>
+                          ) : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         ) : (
           /* Riwayat Lintas Tahun */
           <Card>
