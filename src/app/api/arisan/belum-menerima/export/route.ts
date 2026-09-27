@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getArisanBelumMenerimaReport } from "@/lib/arisan-belum-menerima";
 
-// GET /api/arisan/belum-menerima/export?tahun=&bulan=
+// GET /api/arisan/belum-menerima/export?tahun=
 export async function GET(req: NextRequest) {
   try {
     const report = await getArisanBelumMenerimaReport(new URL(req.url).searchParams);
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
     XLSX.utils.book_append_sheet(workbook, worksheet, "Belum Menerima");
 
     const workbookBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
-    const filename = `anggota-belum-menerima-arisan-${report.summary.tahun}-${String(report.summary.bulan).padStart(2, "0")}.xlsx`;
+    const filename = `anggota-belum-menerima-arisan-${report.summary.tahun}.xlsx`;
 
     return new NextResponse(new Uint8Array(workbookBuffer), {
       status: 200,
@@ -57,4 +57,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Gagal mengekspor data anggota yang belum menerima arisan" }, { status: 500 });
   }
 }
-

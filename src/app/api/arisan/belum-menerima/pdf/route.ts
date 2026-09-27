@@ -31,7 +31,7 @@ function formatTanggalJam(date: Date) {
   return `${day} ${month} ${year} ${hour}:${minute}`;
 }
 
-// GET /api/arisan/belum-menerima/pdf?tahun=&bulan=
+// GET /api/arisan/belum-menerima/pdf?tahun=
 export async function GET(req: NextRequest) {
   try {
     const report = await getArisanBelumMenerimaReport(new URL(req.url).searchParams);
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
       await browser.close();
     }
 
-    const filename = `anggota-belum-menerima-arisan-${report.summary.tahun}-${String(report.summary.bulan).padStart(2, "0")}.pdf`;
+    const filename = `anggota-belum-menerima-arisan-${report.summary.tahun}.pdf`;
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
@@ -252,4 +252,3 @@ function buildHtml(report: ArisanBelumMenerimaReport, logoDataUrl: string) {
 </body>
 </html>`;
 }
-

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getArisanBelumMenerimaReport } from "@/lib/arisan-belum-menerima";
 
-// GET /api/arisan/belum-menerima?tahun=&bulan=
+// GET /api/arisan/belum-menerima?tahun=
 export async function GET(req: NextRequest) {
   try {
     const report = await getArisanBelumMenerimaReport(new URL(req.url).searchParams);
@@ -14,4 +14,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Gagal mengambil data anggota yang belum menerima arisan" }, { status: 500 });
   }
 }
-

@@ -191,7 +191,6 @@ export default function ArisanPage() {
   const [belumMenerimaRows, setBelumMenerimaRows] = useState<BelumMenerimaArisan[]>([]);
   const [belumMenerimaSummary, setBelumMenerimaSummary] = useState<BelumMenerimaSummary | null>(null);
   const [belumMenerimaYear, setBelumMenerimaYear] = useState<string>(String(new Date().getFullYear()));
-  const [belumMenerimaMonth, setBelumMenerimaMonth] = useState<string>(String(new Date().getMonth() + 1));
   const [belumMenerimaLoading, setBelumMenerimaLoading] = useState(false);
   const [downloadingBelumMenerimaExcel, setDownloadingBelumMenerimaExcel] = useState(false);
   const [downloadingBelumMenerimaPdf, setDownloadingBelumMenerimaPdf] = useState(false);
@@ -323,7 +322,6 @@ export default function ArisanPage() {
     try {
       const searchParams = new URLSearchParams();
       searchParams.set("tahun", belumMenerimaYear);
-      searchParams.set("bulan", belumMenerimaMonth);
       const res = await fetch(`/api/arisan/belum-menerima?${searchParams.toString()}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -334,7 +332,7 @@ export default function ArisanPage() {
     } finally {
       setBelumMenerimaLoading(false);
     }
-  }, [belumMenerimaYear, belumMenerimaMonth]);
+  }, [belumMenerimaYear]);
 
   useEffect(() => {
     if (pageTab === "belum_menerima") {
@@ -811,7 +809,6 @@ export default function ArisanPage() {
     try {
       const searchParams = new URLSearchParams({
         tahun: belumMenerimaYear,
-        bulan: belumMenerimaMonth,
       });
       const endpoint = isExcel
         ? `/api/arisan/belum-menerima/export?${searchParams.toString()}`
@@ -826,7 +823,7 @@ export default function ArisanPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const period = `${belumMenerimaYear}-${String(belumMenerimaMonth).padStart(2, "0")}`;
+      const period = belumMenerimaYear;
       a.download = `anggota-belum-menerima-arisan-${period}.${isExcel ? "xlsx" : "pdf"}`;
       a.click();
       URL.revokeObjectURL(url);
@@ -1707,24 +1704,11 @@ export default function ArisanPage() {
                 <div>
                   <h4 className="font-h3 text-[20px] text-on-surface">Anggota Belum Menerima Arisan</h4>
                   <p className="text-body-sm text-on-surface-variant mt-0.5">
-                    Periode Januari sampai {formatBulan(belumMenerimaMonth)} {belumMenerimaYear}.
+                    Periode Januari sampai Desember {belumMenerimaYear}.
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="relative">
-                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">calendar_month</span>
-                  <select
-                    value={belumMenerimaMonth}
-                    onChange={(e) => setBelumMenerimaMonth(e.target.value)}
-                    className="appearance-none pl-9 pr-8 py-2 border border-outline-variant rounded-lg bg-surface text-body-sm focus:border-primary focus:outline-none text-on-surface min-w-[140px]"
-                  >
-                    {MONTH_OPTIONS.map((m) => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </select>
-                  <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">expand_more</span>
-                </div>
                 <div className="relative">
                   <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px] pointer-events-none">calendar_today</span>
                   <select
