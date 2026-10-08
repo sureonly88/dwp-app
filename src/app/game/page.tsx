@@ -1,0 +1,1460 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import AppLayout from "@/components/layout/AppLayout";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
+
+interface Kegiatan {
+  id: number;
+  judul: string;
+  tanggal: string;
+  lokasi: string | null;
+  kategori: string;
+  status: "Mendatang" | "Berlangsung" | "Selesai" | "Dibatalkan";
+  event_code: string;
+}
+
+interface GameSetup {
+  id: number;
+  nama_game: string;
+  jumlah_hadiah: number;
+  jumlah_per_undi: number;
+}
+
+interface Winner {
+  id: number;
+  urutan: number;
+  peserta_tipe: "anggota" | "tamu";
+  nama: string;
+  nip: string | null;
+  jabatan: string | null;
+  unit_kerja: string | null;
+  instansi?: string | null;
+  foto: string | null;
+  waktu: string;
+}
+
+interface DrawWinner {
+  id: number;
+  urutan: number;
+  nama: string;
+  pesertaTipe: "anggota" | "tamu";
+  unit: string | null;
+  jabatan: string | null;
+  foto: string | null;
+}
+
+type SpinState = "idle" | "running" | "stopping";
+
+function formatTanggal(s: string) {
+  if (!s) return "-";
+  return new Date(s).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function readGamePageStateFromUrl() {
+  if (typeof window === "undefined") {
+    return { selectedId: null as number | null, selectedGameId: null as number | null, undianOpen: false };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const kegiatanParam = params.get("kegiatan");
+  const parsedSelectedId = kegiatanParam ? Number(kegiatanParam) : Number.NaN;
+  const selectedId = Number.isInteger(parsedSelectedId) && parsedSelectedId > 0 ? parsedSelectedId : null;
+  const gameParam = params.get("game");
+  const parsedGameId = gameParam ? Number(gameParam) : Number.NaN;
+  const selectedGameId = Number.isInteger(parsedGameId) && parsedGameId > 0 ? parsedGameId : null;
+
+  return {
+    selectedId,
+    selectedGameId,
+    undianOpen: selectedId !== null && params.get("view") === "undian",
+  };
+}
+
+function replaceGamePageStateInUrl(selectedId: number | null, selectedGameId: number | null, undianOpen: boolean) {
+  if (typeof window === "undefined") return;
+
+  const params = new URLSearchParams(window.location.search);
+  if (selectedId !== null) {
+    params.set("kegiatan", String(selectedId));
+  } else {
+    params.delete("kegiatan");
+  }
+
+  if (selectedId !== null && selectedGameId !== null) {
+    params.set("game", String(selectedGameId));
+  } else {
+    params.delete("game");
+  }
+
+  if (selectedId !== null && undianOpen) {
+    params.set("view", "undian");
+  } else {
+    params.delete("view");
+  }
+
+  const nextQuery = params.toString();
+  const nextUrl = nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname;
+  window.history.replaceState(window.history.state, "", nextUrl);
+}
+
+const CONFETTI_COLORS = [
+  "#f43f5e", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6",
+  "#ec4899", "#06b6d4", "#f97316", "#a3e635", "#e879f9", "#fbbf24", "#34d399",
+];
+const CONFETTI_PIECES = Array.from({ length: 200 }, (_, i) => {
+  // Full 360° burst from center
+  const angleDeg = (i / 200) * 360;
+  const angleRad = angleDeg * (Math.PI / 180);
+  const r = 160 + (i * 13) % 640;
+  return {
+    id: i,
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    tx: `${Math.round(Math.sin(angleRad) * r)}px`,
+    ty: `${Math.round(-Math.cos(angleRad) * r)}px`,
+    rotate: `${(i * 43) % 720}deg`,
+    width: `${5 + (i * 3) % 13}px`,
+    height: `${12 + (i * 7) % 30}px`,
+    duration: `${(0.9 + (i * 0.012) % 1.4).toFixed(2)}s`,
+    delay: `${((i * 0.005) % 0.6).toFixed(2)}s`,
+  };
+});
+
+export default function GamePage() {
+  const [kegiatanList, setKegiatanList] = useState<Kegiatan[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedGameId, setSelectedGameId] = useState<number | null>(null);
+  const [kegiatanInfo, setKegiatanInfo] = useState<Kegiatan | null>(null);
+  const [gameSetups, setGameSetups] = useState<GameSetup[]>([]);
+  const [setup, setSetup] = useState<GameSetup | null>(null);
+  const [winners, setWinners] = useState<Winner[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [hadirCount, setHadirCount] = useState<number | null>(null);
+  const [eligibleCount, setEligibleCount] = useState<number | null>(null);
+
+  // Setup modal
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [setupMode, setSetupMode] = useState<"create" | "edit">("create");
+  const [draftNamaGame, setDraftNamaGame] = useState("");
+  const [draftJumlah, setDraftJumlah] = useState("1");
+  const [draftJumlahPerUndi, setDraftJumlahPerUndi] = useState("10");
+  const [savingSetup, setSavingSetup] = useState(false);
+
+  // Undian fullscreen modal
+  const [undianOpen, setUndianOpen] = useState(false);
+  const [spinState, setSpinState] = useState<SpinState>("idle");
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [displayNames, setDisplayNames] = useState<string[]>([]);
+  const [lastWinners, setLastWinners] = useState<DrawWinner[]>([]);
+  const [rollNames, setRollNames] = useState<string[]>([]);
+  const rollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const rollIdxRef = useRef(0);
+  const slowingRef = useRef(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastPlayedWinnerKeyRef = useRef("");
+  const selectedIdRef = useRef<number | null>(null);
+  const selectedGameIdRef = useRef<number | null>(null);
+  const undianOpenRef = useRef(false);
+  const [celebrating, setCelebrating] = useState(false);
+  const [undiError, setUndiError] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [selectedWinnerIds, setSelectedWinnerIds] = useState<Set<number>>(() => new Set());
+  const [cancellingSelected, setCancellingSelected] = useState(false);
+
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const showToast = (msg: string, type: "success" | "error" = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const resetGameState = useCallback(() => {
+    if (rollIntervalRef.current) {
+      clearInterval(rollIntervalRef.current);
+      rollIntervalRef.current = null;
+    }
+    slowingRef.current = false;
+    lastPlayedWinnerKeyRef.current = "";
+    setSpinState("idle");
+    setWinners([]);
+    setGameSetups([]);
+    setSetup(null);
+    setSelectedGameId(null);
+    setKegiatanInfo(null);
+    setHadirCount(null);
+    setEligibleCount(null);
+    setRollNames([]);
+    setUndiError(null);
+    setLastWinners([]);
+    setDisplayName(null);
+    setDisplayNames([]);
+    setCelebrating(false);
+    setSelectedWinnerIds(new Set());
+  }, []);
+
+  const loadKegiatan = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/kegiatan?limit=100`);
+      const json = await res.json();
+      setKegiatanList(json.data ?? []);
+    } catch {
+      showToast("Gagal memuat daftar kegiatan", "error");
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat data awal halaman dari API.
+    loadKegiatan();
+  }, [loadKegiatan]);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    selectedGameIdRef.current = selectedGameId;
+  }, [selectedGameId]);
+
+  useEffect(() => {
+    undianOpenRef.current = undianOpen;
+  }, [undianOpen]);
+
+  useEffect(() => {
+    const syncStateFromUrl = () => {
+      const nextState = readGamePageStateFromUrl();
+
+      if (selectedIdRef.current !== nextState.selectedId) {
+        resetGameState();
+        setSelectedId(nextState.selectedId);
+      }
+
+      if (selectedGameIdRef.current !== nextState.selectedGameId) {
+        setSelectedGameId(nextState.selectedGameId);
+      }
+
+      if (undianOpenRef.current !== nextState.undianOpen) {
+        setUndianOpen(nextState.undianOpen);
+      }
+    };
+
+    syncStateFromUrl();
+    window.addEventListener("popstate", syncStateFromUrl);
+    return () => window.removeEventListener("popstate", syncStateFromUrl);
+  }, [resetGameState]);
+
+  const loadDetail = useCallback(async (kegiatanId: number, gameId: number | null = selectedGameIdRef.current) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (gameId !== null) params.set("game_id", String(gameId));
+      const query = params.toString();
+      const res = await fetch(`/api/game/${kegiatanId}${query ? `?${query}` : ""}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      const nextWinners: Winner[] = json.winners ?? [];
+      const nextSetups: GameSetup[] = (json.setups ?? []).map((item: GameSetup) => ({
+        ...item,
+        id: Number(item.id),
+        nama_game: String(item.nama_game ?? "Game"),
+        jumlah_per_undi: Number(item.jumlah_per_undi ?? 10),
+      }));
+      const nextSetup = json.setup ? {
+        ...json.setup,
+        id: Number(json.setup.id),
+        nama_game: String(json.setup.nama_game ?? "Game"),
+        jumlah_per_undi: Number(json.setup.jumlah_per_undi ?? 10),
+      } : null;
+      setKegiatanInfo(json.kegiatan);
+      setGameSetups(nextSetups);
+      setSetup(nextSetup);
+      setSelectedGameId(nextSetup?.id ?? null);
+      setWinners(nextWinners);
+      setSelectedWinnerIds((current) => {
+        const availableWinnerIds = new Set(nextWinners.map((winner) => winner.id));
+        return new Set([...current].filter((winnerId) => availableWinnerIds.has(winnerId)));
+      });
+      setHadirCount(json.hadir_count ?? null);
+      setEligibleCount(json.eligible_count ?? null);
+      setRollNames((json.roll_names ?? []).filter((nama: string) => typeof nama === "string" && nama.trim().length > 0));
+      setUndiError(null);
+    } catch {
+      showToast("Gagal memuat game", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Memuat detail saat kegiatan dipilih.
+    if (selectedId !== null) loadDetail(selectedId);
+  }, [selectedId, selectedGameId, loadDetail]);
+
+  useEffect(() => {
+    return () => { if (rollIntervalRef.current) clearInterval(rollIntervalRef.current); };
+  }, []);
+
+  // Setup modal
+  const openSetup = (mode: "create" | "edit" = setup ? "edit" : "create") => {
+    setSetupMode(mode);
+    const sourceSetup = mode === "edit" ? setup : null;
+    setDraftNamaGame(sourceSetup?.nama_game ?? "");
+    setDraftJumlah(sourceSetup ? String(sourceSetup.jumlah_hadiah) : "1");
+    setDraftJumlahPerUndi(sourceSetup ? String(sourceSetup.jumlah_per_undi ?? 10) : "10");
+    setSetupOpen(true);
+  };
+
+  const handleSaveSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedId) return;
+    const namaGame = draftNamaGame.trim();
+    if (!namaGame) {
+      showToast("Nama game wajib diisi", "error");
+      return;
+    }
+    const jumlah = Number(draftJumlah);
+    if (!Number.isInteger(jumlah) || jumlah < 1) {
+      showToast("Jumlah peserta terpilih tidak valid", "error");
+      return;
+    }
+    const jumlahPerUndi = Number(draftJumlahPerUndi);
+    if (!Number.isInteger(jumlahPerUndi) || jumlahPerUndi < 1) {
+      showToast("Jumlah peserta terpilih per pengundian tidak valid", "error");
+      return;
+    }
+    setSavingSetup(true);
+    try {
+      const res = await fetch(`/api/game/${selectedId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: setupMode === "edit" ? setup?.id : undefined,
+          nama_game: namaGame,
+          jumlah_hadiah: jumlah,
+          jumlah_per_undi: jumlahPerUndi,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      const nextSetup = {
+        id: Number(json.id),
+        nama_game: json.nama_game,
+        jumlah_hadiah: json.jumlah_hadiah,
+        jumlah_per_undi: json.jumlah_per_undi,
+      };
+      setSelectedGameId(nextSetup.id);
+      setSetup(nextSetup);
+      setSetupOpen(false);
+      showToast("Setup game disimpan");
+      await loadDetail(selectedId, nextSetup.id);
+    } catch (err) {
+      showToast((err as Error).message ?? "Gagal menyimpan", "error");
+    } finally {
+      setSavingSetup(false);
+    }
+  };
+
+  // Undian
+  const openUndian = async () => {
+    if (selectedId !== null) {
+      await loadDetail(selectedId, selectedGameId);
+    }
+    lastPlayedWinnerKeyRef.current = "";
+    setDisplayName(null);
+    setDisplayNames([]);
+    setLastWinners([]);
+    setSpinState("idle");
+    setUndiError(null);
+    setUndianOpen(true);
+    replaceGamePageStateInUrl(selectedId, selectedGameId, true);
+  };
+
+  const closeUndian = () => {
+    if (spinState !== "idle") return;
+    if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
+    slowingRef.current = false;
+    lastPlayedWinnerKeyRef.current = "";
+    setDisplayName(null);
+    setDisplayNames([]);
+    setCelebrating(false);
+    setUndianOpen(false);
+    replaceGamePageStateInUrl(selectedId, selectedGameId, false);
+  };
+
+  // ---- audio ----
+  const getAudioCtx = () => {
+    if (typeof window === "undefined") return null;
+    try {
+      if (!audioCtxRef.current) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
+        audioCtxRef.current = new AC();
+      }
+      return audioCtxRef.current;
+    } catch { return null; }
+  };
+  const primeAudioCtx = () => {
+    const ctx = getAudioCtx();
+    if (!ctx) return null;
+
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => null);
+    }
+
+    if (ctx.state !== "running") return ctx;
+
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.00001, ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.01);
+    } catch {
+      // ignore warm-up failures
+    }
+
+    return ctx;
+  };
+  // hi-hat: crisp noise tick — used during fast spin
+  const playHihat = () => {
+    try {
+      const ctx = getAudioCtx();
+      if (!ctx) return;
+      const bufSize = Math.floor(ctx.sampleRate * 0.07);
+      const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const hpf = ctx.createBiquadFilter();
+      hpf.type = "highpass";
+      hpf.frequency.value = 4000;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.45, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.07);
+      src.connect(hpf); hpf.connect(gain); gain.connect(ctx.destination);
+      src.start(); src.stop(ctx.currentTime + 0.07);
+    } catch { /* ignore */ }
+  };
+  // snare: tonal body + band-pass noise — used when spin slows down
+  const playSnare = () => {
+    try {
+      const ctx = getAudioCtx();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const og = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(220, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.1);
+      og.gain.setValueAtTime(0.6, ctx.currentTime);
+      og.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+      osc.connect(og); og.connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.1);
+      const bufSize = Math.floor(ctx.sampleRate * 0.12);
+      const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const bpf = ctx.createBiquadFilter();
+      bpf.type = "bandpass"; bpf.frequency.value = 3500; bpf.Q.value = 0.5;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.55, ctx.currentTime);
+      ng.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+      src.connect(bpf); bpf.connect(ng); ng.connect(ctx.destination);
+      src.start(); src.stop(ctx.currentTime + 0.12);
+    } catch { /* ignore */ }
+  };
+  // victory: drum roll (10 snares) → kick + crash cymbal
+  const playVictorySound = () => {
+    try {
+      const ctx = getAudioCtx();
+      if (!ctx) return;
+      // Drum roll accelerating into finale
+      for (let i = 0; i < 10; i++) {
+        const t = (i / 10) * 0.55;
+        const osc = ctx.createOscillator();
+        const og = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(220, ctx.currentTime + t);
+        osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + t + 0.08);
+        og.gain.setValueAtTime(0.45 + i * 0.025, ctx.currentTime + t);
+        og.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.08);
+        osc.connect(og); og.connect(ctx.destination);
+        osc.start(ctx.currentTime + t); osc.stop(ctx.currentTime + t + 0.08);
+        const bufSize = Math.floor(ctx.sampleRate * 0.08);
+        const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let j = 0; j < bufSize; j++) d[j] = Math.random() * 2 - 1;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const bpf = ctx.createBiquadFilter();
+        bpf.type = "bandpass"; bpf.frequency.value = 3500; bpf.Q.value = 0.5;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.4 + i * 0.02, ctx.currentTime + t);
+        ng.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.08);
+        src.connect(bpf); bpf.connect(ng); ng.connect(ctx.destination);
+        src.start(ctx.currentTime + t); src.stop(ctx.currentTime + t + 0.08);
+      }
+      // Kick drum
+      const kT = 0.58;
+      const kick = ctx.createOscillator();
+      const kGain = ctx.createGain();
+      kick.type = "sine";
+      kick.frequency.setValueAtTime(150, ctx.currentTime + kT);
+      kick.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + kT + 0.35);
+      kGain.gain.setValueAtTime(0.9, ctx.currentTime + kT);
+      kGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + kT + 0.4);
+      kick.connect(kGain); kGain.connect(ctx.destination);
+      kick.start(ctx.currentTime + kT); kick.stop(ctx.currentTime + kT + 0.4);
+      // Crash cymbal
+      const cT = 0.58;
+      const cBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 2.5), ctx.sampleRate);
+      const cData = cBuf.getChannelData(0);
+      for (let j = 0; j < cBuf.length; j++) cData[j] = Math.random() * 2 - 1;
+      const cSrc = ctx.createBufferSource();
+      cSrc.buffer = cBuf;
+      const cHpf = ctx.createBiquadFilter();
+      cHpf.type = "highpass"; cHpf.frequency.value = 5000;
+      const cGain = ctx.createGain();
+      cGain.gain.setValueAtTime(0.8, ctx.currentTime + cT);
+      cGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + cT + 2.5);
+      cSrc.connect(cHpf); cHpf.connect(cGain); cGain.connect(ctx.destination);
+      cSrc.start(ctx.currentTime + cT); cSrc.stop(ctx.currentTime + cT + 2.5);
+    } catch { /* ignore */ }
+  };
+
+  const handleStart = async () => {
+    if (spinState !== "idle") return;
+    if (isSlotFull) {
+      setUndiError("Semua kuota peserta terpilih untuk game ini sudah terpenuhi.");
+      return;
+    }
+    if (eligibleCount === 0) {
+      setUndiError(hadirCount === 0
+        ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
+        : "Semua peserta yang hadir sudah menjadi peserta terpilih di kegiatan ini.");
+      return;
+    }
+    if (undiError) return;
+    if (rollNames.length === 0) {
+      setUndiError("Data nama peserta hadir belum tersedia untuk animasi pengundian.");
+      return;
+    }
+    setUndiError(null);
+    primeAudioCtx();
+    setSpinState("running");
+    setDisplayName(rollNames[rollIdxRef.current] ?? null);
+    setDisplayNames([]);
+    setLastWinners([]);
+    rollIdxRef.current = 0;
+    rollIntervalRef.current = setInterval(() => {
+      rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
+      setDisplayName(rollNames[rollIdxRef.current] ?? null);
+      playHihat();
+    }, 80);
+  };
+
+  const handleStop = async () => {
+    if (spinState !== "running" || !selectedId || !selectedGameId) return;
+    primeAudioCtx();
+    setSpinState("stopping");
+
+    slowingRef.current = true;
+    let delay = 80;
+    const slowDown = () => {
+      if (!slowingRef.current) return;
+      if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
+      delay = Math.min(delay * 1.35, 400);
+      rollIntervalRef.current = setInterval(() => {
+        rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
+        setDisplayName(rollNames[rollIdxRef.current] ?? null);
+        setDisplayNames([]);
+        if (delay < 150) {
+          playHihat();
+        } else {
+          playSnare();
+        }
+      }, delay);
+      if (delay < 390) setTimeout(slowDown, delay * 3);
+    };
+    slowDown();
+
+    try {
+      const res = await fetch(`/api/game/${selectedId}/undi`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ game_setup_id: selectedGameId }),
+      });
+      const json = await res.json();
+
+      await new Promise((r) => setTimeout(r, 1500));
+      slowingRef.current = false;
+      if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
+      rollIntervalRef.current = null;
+
+      if (!res.ok) {
+        setSpinState("idle");
+        setDisplayName(null);
+        setDisplayNames([]);
+        setUndiError(json.error ?? "Gagal mengundi");
+        showToast(json.error ?? "Gagal mengundi", "error");
+        return;
+      }
+
+      setUndiError(null);
+      const drawnWinners: DrawWinner[] = Array.isArray(json.winners)
+        ? json.winners.map((winner: {
+            id: number;
+            urutan: number;
+            nama: string;
+            peserta_tipe: "anggota" | "tamu";
+            unit_kerja: string | null;
+            jabatan: string | null;
+            foto: string | null;
+          }) => ({
+            id: winner.id,
+            urutan: winner.urutan,
+            nama: winner.nama,
+            pesertaTipe: winner.peserta_tipe,
+            unit: winner.unit_kerja,
+            jabatan: winner.jabatan,
+            foto: winner.foto,
+          }))
+        : [];
+
+      const winnerKey = drawnWinners.map((winner) => winner.id).join(",");
+      if (winnerKey) {
+        lastPlayedWinnerKeyRef.current = winnerKey;
+      }
+      setLastWinners(drawnWinners);
+      setDisplayName(null);
+      setDisplayNames([]);
+      playVictorySound();
+      setCelebrating(true);
+      setTimeout(() => setCelebrating(false), 5500);
+      showToast(`${drawnWinners.length} peserta terpilih berhasil diundi`);
+      loadDetail(selectedId, selectedGameId);
+    } catch {
+      if (rollIntervalRef.current) clearInterval(rollIntervalRef.current);
+      rollIntervalRef.current = null;
+      setSpinState("idle");
+      setDisplayName(null);
+      setDisplayNames([]);
+      showToast("Gagal mengundi", "error");
+      return;
+    }
+
+    setSpinState("idle");
+  };
+
+  const handleBatalkanWinner = async (winnerId: number, nama: string) => {
+    if (!selectedId) return;
+    if (!confirm(`Batalkan peserta terpilih ${nama}?`)) return;
+    try {
+      const res = await fetch(`/api/game/${selectedId}/winner/${winnerId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      showToast("Peserta Terpilih dibatalkan");
+      setSelectedWinnerIds((current) => {
+        const next = new Set(current);
+        next.delete(winnerId);
+        return next;
+      });
+      setLastWinners((current) => current.filter((winner) => winner.id !== winnerId));
+      loadDetail(selectedId, selectedGameId);
+    } catch {
+      showToast("Gagal membatalkan", "error");
+    }
+  };
+
+  const toggleWinnerSelection = (winnerId: number) => {
+    setSelectedWinnerIds((current) => {
+      const next = new Set(current);
+      if (next.has(winnerId)) {
+        next.delete(winnerId);
+      } else {
+        next.add(winnerId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllWinners = () => {
+    setSelectedWinnerIds(allWinnersSelected ? new Set() : new Set(winners.map((winner) => winner.id)));
+  };
+
+  const handleBatalkanSelectedWinners = async () => {
+    if (!selectedId || selectedWinnerIds.size === 0) return;
+
+    const selectedIds = new Set(selectedWinnerIds);
+    const selectedWinners = winners.filter((winner) => selectedIds.has(winner.id));
+    if (selectedWinners.length === 0) return;
+    if (!confirm(`Batalkan ${selectedWinners.length} peserta terpilih?`)) return;
+
+    setCancellingSelected(true);
+    let deletedCount = 0;
+    try {
+      for (const winner of selectedWinners) {
+        const res = await fetch(`/api/game/${selectedId}/winner/${winner.id}`, { method: "DELETE" });
+        if (!res.ok) {
+          const json = await res.json().catch(() => null);
+          throw new Error(json?.error ?? `Gagal membatalkan ${winner.nama}`);
+        }
+        deletedCount += 1;
+      }
+
+      showToast(`${selectedWinners.length} peserta terpilih dibatalkan`);
+      setSelectedWinnerIds(new Set());
+      setLastWinners((current) => current.filter((winner) => !selectedIds.has(winner.id)));
+      loadDetail(selectedId, selectedGameId);
+    } catch (e) {
+      showToast((e as Error).message ?? "Gagal membatalkan peserta terpilih", "error");
+      if (deletedCount > 0) {
+        setSelectedWinnerIds(new Set());
+        setLastWinners((current) => current.filter((winner) => !selectedIds.has(winner.id)));
+        loadDetail(selectedId, selectedGameId);
+      }
+    } finally {
+      setCancellingSelected(false);
+    }
+  };
+
+  const handleDownloadWinnersPdf = async () => {
+    if (!selectedId || !selectedGameId) return;
+    setDownloadingPdf(true);
+    try {
+      const res = await fetch(`/api/game/${selectedId}/pdf?game_id=${selectedGameId}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error ?? "Gagal mengunduh PDF");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `peserta-terpilih-game-${kegiatanInfo?.event_code ?? selectedId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showToast((e as Error).message ?? "Gagal mengunduh PDF", "error");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const isSlotFull = setup ? winners.length >= setup.jumlah_hadiah : false;
+  const selectedWinnerCount = selectedWinnerIds.size;
+  const allWinnersSelected = winners.length > 0 && selectedWinnerCount === winners.length;
+  const winnersPerDraw = setup?.jumlah_per_undi ?? 10;
+  const canStart = spinState === "idle" && !!setup && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
+  const highlightedWinnerIds = new Set(lastWinners.map((winner) => winner.id));
+
+  return (
+    <AppLayout>
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-lg font-label-md text-label-md ${
+          toast.type === "success"
+            ? "bg-tertiary-container text-on-tertiary-container border border-tertiary-fixed-dim"
+            : "bg-error-container text-error border border-error/30"
+        }`}>
+          <span className="material-symbols-outlined text-[18px]">
+            {toast.type === "success" ? "check_circle" : "error"}
+          </span>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Setup Modal */}
+      {setupOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSetupOpen(false)}>
+          <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-sm p-8 flex flex-col gap-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined material-symbols-filled text-primary text-[28px]">settings</span>
+              <h3 className="font-bold text-on-surface text-lg">{setupMode === "edit" ? "Ubah Setup Game" : "Tambah Game"}</h3>
+            </div>
+            <form onSubmit={handleSaveSetup} className="flex flex-col gap-5">
+              <div>
+                <label className="text-label-sm text-on-surface-variant block mb-2">Nama Game</label>
+                <input
+                  type="text"
+                  value={draftNamaGame}
+                  onChange={(e) => setDraftNamaGame(e.target.value)}
+                  className="w-full border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11"
+                  placeholder="Contoh: Tebak Lagu"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-label-sm text-on-surface-variant block mb-2">Total Peserta Terpilih Game</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={draftJumlah}
+                  onChange={(e) => setDraftJumlah(e.target.value)}
+                  className="w-full border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11 text-center text-2xl font-bold"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-label-sm text-on-surface-variant block mb-2">Jumlah Peserta Terpilih dalam 1 Pengundian</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={draftJumlahPerUndi}
+                  onChange={(e) => setDraftJumlahPerUndi(e.target.value)}
+                  className="w-full border border-outline-variant rounded-lg px-4 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11 text-center text-2xl font-bold"
+                  required
+                />
+                <p className="text-[11px] text-on-surface-variant mt-1">
+                  Jumlah ini dipakai setiap tombol STOP ditekan.
+                </p>
+              </div>
+              <div className="flex gap-3 justify-end">
+                <button type="button" onClick={() => setSetupOpen(false)} className="px-5 py-2.5 rounded-xl border border-outline-variant text-on-surface-variant hover:bg-surface-container text-[13px]">
+                  Batal
+                </button>
+                <Button type="submit" icon="save" disabled={savingSetup}>
+                  {savingSetup ? "Menyimpan..." : "Simpan Setup"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Undian Fullscreen Modal */}
+      {undianOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-surface">
+          <style>{`
+            @keyframes winnerReveal {
+              0%   { transform: scale(0.4) rotate(-4deg); opacity: 0; }
+              65%  { transform: scale(1.06) rotate(1deg); opacity: 1; }
+              100% { transform: scale(1) rotate(0deg); opacity: 1; }
+            }
+            @keyframes shimmer {
+              0%, 100% { opacity: 0.6; }
+              50%       { opacity: 1; }
+            }
+            @keyframes burstUp {
+              0%   { transform: translate(0, 0) rotate(0deg) scaleX(1); opacity: 1; }
+              55%  { opacity: 1; }
+              100% { transform: translate(var(--tx), calc(var(--ty) + 60px)) rotate(var(--rotate)) scaleX(-1); opacity: 0; }
+            }
+            .winner-reveal { animation: winnerReveal 0.65s cubic-bezier(0.175,0.885,0.32,1.275) both; }
+            .shimmer-text  { animation: shimmer 1.2s ease-in-out infinite; }
+          `}</style>
+
+          {/* Full-screen confetti */}
+          {celebrating && (
+            <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+              {CONFETTI_PIECES.map((p) => (
+                <div
+                  key={p.id}
+                  className="absolute rounded-sm"
+                  style={{
+                    left: "50%",
+                    top: "50%",
+                    width: p.width,
+                    height: p.height,
+                    marginLeft: `calc(-${p.width} / 2)`,
+                    marginTop: `calc(-${p.height} / 2)`,
+                    backgroundColor: p.color,
+                    "--tx": p.tx,
+                    "--ty": p.ty,
+                    "--rotate": p.rotate,
+                    animation: `burstUp ${p.duration} ease-out ${p.delay} forwards`,
+                  } as React.CSSProperties}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-8 py-5 border-b border-outline-variant bg-surface-container-lowest shadow-sm">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined material-symbols-filled text-primary text-[28px]">sports_esports</span>
+              <div>
+                <h2 className="font-bold text-on-surface text-lg leading-tight">{setup?.nama_game ?? "Pengundian Game"}</h2>
+                {kegiatanInfo && (
+                  <p className="text-on-surface-variant text-[12px]">Pengundian Game · {kegiatanInfo.judul} · {formatTanggal(kegiatanInfo.tanggal)}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="text-center">
+                <p className="text-on-surface-variant text-[10px] uppercase tracking-widest">PESERTA HADIR</p>
+                <p className={`font-bold text-[16px] ${hadirCount === 0 ? "text-error" : "text-tertiary"}`}>
+                  {hadirCount ?? "–"} orang
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-on-surface-variant text-[10px] uppercase tracking-widest">PESERTA TERPILIH</p>
+                <p className="text-on-surface font-bold text-[16px]">{winners.length} / {setup?.jumlah_hadiah ?? "?"}</p>
+              </div>
+              {setup && (
+                <div className="text-center">
+                  <p className="text-on-surface-variant text-[10px] uppercase tracking-widest">PER UNDI</p>
+                  <p className="text-on-surface font-bold text-[16px]">{winnersPerDraw} orang</p>
+                </div>
+              )}
+              {isSlotFull && (
+                <div className="px-4 py-2 rounded-full bg-tertiary-container text-on-tertiary-container text-[12px] font-semibold">
+                  ✅ Pengundian sudah habis
+                </div>
+              )}
+              <button
+                onClick={closeUndian}
+                disabled={spinState !== "idle"}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-outline-variant text-on-surface-variant hover:bg-surface-container-high disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[13px]"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+                Tutup
+              </button>
+            </div>
+          </div>
+
+          {/* Center spin area */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-8 px-8 py-8 relative overflow-y-auto">
+
+            {/* No eligible banner */}
+            {spinState === "idle" && (isSlotFull || hadirCount === 0 || eligibleCount === 0 || undiError) && (
+              <div className="w-full max-w-md px-6 py-4 rounded-2xl bg-error-container border border-error/30 flex items-start gap-3 text-error">
+                <span className="material-symbols-outlined text-[22px] mt-0.5 shrink-0">group_off</span>
+                <div>
+                  <p className="font-bold text-[14px]">
+                    {hadirCount === 0 ? "Tidak ada peserta yang hadir" : "Pengundian sudah habis"}
+                  </p>
+                  <p className="text-[12px] mt-0.5 opacity-80">
+                    {isSlotFull
+                      ? "Semua kuota peserta terpilih sudah terpenuhi."
+                      : hadirCount === 0
+                      ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
+                      : undiError ?? "Semua peserta yang hadir sudah menjadi peserta terpilih di kegiatan ini."}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Status badge */}
+            <div className={`px-8 py-2.5 rounded-full text-[15px] font-bold uppercase tracking-[0.2em] transition-all ${
+              spinState === "running"
+                ? "bg-tertiary text-on-tertiary"
+                : spinState === "stopping"
+                ? "bg-secondary text-on-secondary"
+                : lastWinners.length > 0
+                ? "bg-primary text-on-primary"
+                : isSlotFull
+                ? "bg-tertiary-container text-on-tertiary-container"
+                : "bg-surface-container-high text-on-surface-variant"
+            }`}>
+              {spinState === "running" && "🎲 Sedang Bergulir..."}
+              {spinState === "stopping" && "⏳ Melambat..."}
+              {spinState === "idle" && lastWinners.length > 0 && "🎁 Peserta Terpilih!"}
+              {spinState === "idle" && lastWinners.length === 0 && !isSlotFull && "Siap Mengundi"}
+              {spinState === "idle" && lastWinners.length === 0 && isSlotFull && "✅ Pengundian Sudah Habis"}
+            </div>
+
+            {/* Name display */}
+            <div className="text-center">
+              <p className="text-on-surface-variant text-[11px] uppercase tracking-[0.3em] mb-4">
+                {spinState === "idle" && lastWinners.length > 0 ? "PESERTA TERPILIH GAME" : "NAMA PESERTA"}
+              </p>
+              {spinState === "idle" && lastWinners.length > 0 ? (
+                <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 winner-reveal">
+                  {lastWinners.map((winner) => (
+                    <div
+                      key={winner.id}
+                      className="rounded-2xl border border-primary/20 bg-primary-fixed px-5 py-6 shadow-lg"
+                    >
+                      <div className="mb-4 flex justify-center">
+                        <div className="w-24 h-24 rounded-2xl overflow-hidden border border-primary/20 bg-surface-container shadow-sm flex items-center justify-center">
+                          {winner.foto ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={winner.foto} alt={`Foto ${winner.nama}`} className="w-full h-full object-cover" />
+                            </>
+                          ) : (
+                            <span className="material-symbols-outlined text-primary/50 text-[42px]">account_circle</span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-[11px] uppercase tracking-[0.25em] text-on-primary-fixed-variant/70 mb-3">
+                        Peserta Terpilih ke-{winner.urutan}
+                      </p>
+                      <h2 className="text-2xl font-bold text-primary uppercase leading-tight break-words">
+                        {winner.nama}
+                      </h2>
+                      <p className="mt-3 text-[13px] text-on-primary-fixed-variant shimmer-text">
+                        {winner.pesertaTipe === "tamu" ? "Tamu Hadir" : "Anggota Hadir"}
+                        {winner.unit ? ` · ${winner.unit}` : ""}
+                        {winner.jabatan ? ` · ${winner.jabatan}` : ""}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                spinState === "running" || spinState === "stopping" ? (
+                  <h1 className="text-6xl font-bold leading-tight uppercase text-on-surface-variant/50 transition-all duration-100">
+                    {displayName ?? "— — —"}
+                  </h1>
+                ) : displayNames.length > 0 ? (
+                  <div className="w-full max-w-6xl grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+                    {displayNames.map((name, index) => (
+                      <div
+                        key={`${name}-${index}`}
+                        className={`rounded-2xl border px-5 py-6 shadow-sm transition-all ${
+                          spinState !== "idle"
+                            ? "border-outline-variant bg-surface-container-high text-on-surface"
+                            : "border-outline-variant/50 bg-surface-container-low text-on-surface-variant"
+                        }`}
+                      >
+                        <p className="text-[10px] uppercase tracking-[0.25em] opacity-70 mb-2">
+                          Peserta {index + 1}
+                        </p>
+                        <h2 className="text-2xl font-bold uppercase leading-tight break-words">
+                          {name}
+                        </h2>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <h1
+                    className={`font-bold leading-tight uppercase ${
+                      spinState !== "idle"
+                        ? "text-6xl text-on-surface-variant/50 transition-all duration-100"
+                        : "text-6xl text-on-surface-variant/20"
+                    }`}
+                  >
+                    — — —
+                  </h1>
+                )
+              )}
+            </div>
+
+            {/* Controls */}
+            <div className="sticky bottom-0 z-20 w-full max-w-3xl rounded-2xl border border-outline-variant bg-surface-container-lowest/95 px-6 py-4 shadow-xl backdrop-blur">
+              <div className="flex justify-center gap-6">
+                <button
+                  onClick={handleStart}
+                  disabled={!canStart}
+                  className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-tertiary text-on-tertiary hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined material-symbols-filled text-[30px]">play_circle</span>
+                  MULAI
+                </button>
+                <button
+                  onClick={handleStop}
+                  disabled={spinState !== "running"}
+                  className="flex items-center gap-3 px-12 py-5 rounded-2xl font-bold text-[16px] bg-error text-on-error hover:opacity-90 active:scale-95 transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined material-symbols-filled text-[30px]">stop_circle</span>
+                  STOP
+                </button>
+              </div>
+
+              <p className="text-on-surface-variant text-[12px] text-center mt-3">
+                {isSlotFull
+                  ? "Pengundian sudah habis. Semua kuota peserta terpilih sudah terpenuhi."
+                  : lastWinners.length > 0
+                  ? `Klik MULAI untuk mengundi putaran berikutnya dengan maksimal ${winnersPerDraw} peserta terpilih lagi.`
+                  : `Klik MULAI untuk memutar nama peserta, lalu klik STOP untuk memilih maksimal ${winnersPerDraw} peserta terpilih sekaligus.`}
+              </p>
+            </div>
+          </div>
+
+          {/* Bottom: winners strip */}
+          {winners.length > 0 && (
+            <div className="px-8 pb-6">
+              <div className="border border-outline-variant rounded-2xl overflow-hidden">
+                <div className="px-5 py-3 bg-surface-container border-b border-outline-variant flex items-center gap-2">
+                  <span className="material-symbols-outlined material-symbols-filled text-secondary text-[16px]">emoji_events</span>
+                  <span className="text-on-surface-variant text-[12px] font-semibold uppercase tracking-widest">Peserta Terpilih Game</span>
+                  <span className="ml-auto text-on-surface-variant text-[11px]">{winners.length} peserta terpilih</span>
+                </div>
+                <div className="flex gap-3 px-5 py-3 overflow-x-auto bg-surface-container-lowest">
+                  {winners.map((w) => (
+                    <div
+                      key={w.id}
+                      className={`flex-shrink-0 flex items-center gap-3 px-4 py-2.5 rounded-xl border ${
+                        highlightedWinnerIds.has(w.id)
+                          ? "bg-primary-fixed border-primary/40"
+                          : "bg-surface-container border-outline-variant"
+                      }`}
+                    >
+                      <div className="w-9 h-9 rounded-full overflow-hidden bg-surface-container-high border border-outline-variant flex items-center justify-center shrink-0">
+                        {w.foto ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={w.foto} alt={`Foto ${w.nama}`} className="w-full h-full object-cover" />
+                          </>
+                        ) : (
+                          <span className="material-symbols-outlined text-on-surface-variant text-[20px]">person</span>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-on-surface-variant text-[10px] uppercase">Peserta Terpilih ke-{w.urutan}</span>
+                        <span className="text-on-surface text-[13px] font-medium whitespace-nowrap uppercase">{w.nama}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-8">
+        {/* Page Header */}
+        <div>
+          <nav className="flex items-center gap-2 text-label-sm text-on-surface-variant mb-2">
+            <span>Beranda</span>
+            <span className="material-symbols-outlined text-[14px]">chevron_right</span>
+            <span className="text-primary font-semibold">Game</span>
+          </nav>
+          <h2 className="font-h1 text-h1 text-primary">Game Kegiatan</h2>
+          <p className="text-body-lg text-on-surface-variant max-w-2xl mt-2">
+            Undi peserta terpilih game dari peserta kegiatan secara transparan dan menyenangkan.
+          </p>
+        </div>
+
+        {/* Kegiatan Selector */}
+        <Card className="p-5">
+          <div className="flex-1">
+            <label className="text-label-sm text-on-surface-variant block mb-1">Pilih Kegiatan</label>
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">event</span>
+              <select
+                value={selectedId ?? ""}
+                onChange={(e) => {
+                  const nextSelectedId = e.target.value ? Number(e.target.value) : null;
+                  resetGameState();
+                  setUndianOpen(false);
+                  setSelectedId(nextSelectedId);
+                  replaceGamePageStateInUrl(nextSelectedId, null, false);
+                }}
+                className="w-full appearance-none border border-outline-variant rounded-lg pl-10 pr-10 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11"
+              >
+                <option value="">— Pilih kegiatan untuk game —</option>
+                {kegiatanList.map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {formatTanggal(k.tanggal)} · {k.judul}
+                  </option>
+                ))}
+              </select>
+              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">expand_more</span>
+            </div>
+          </div>
+        </Card>
+
+        {selectedId && (
+          <Card className="p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+              <div className="flex-1">
+                <label className="text-label-sm text-on-surface-variant block mb-1">Pilih Game</label>
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">sports_esports</span>
+                  <select
+                    value={selectedGameId ?? ""}
+                    onChange={(e) => {
+                      const nextGameId = e.target.value ? Number(e.target.value) : null;
+                      setSelectedGameId(nextGameId);
+                      setLastWinners([]);
+                      setSelectedWinnerIds(new Set());
+                      setUndiError(null);
+                      replaceGamePageStateInUrl(selectedId, nextGameId, false);
+                    }}
+                    className="w-full appearance-none border border-outline-variant rounded-lg pl-10 pr-10 py-2.5 text-body-sm bg-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 text-on-surface h-11"
+                  >
+                    <option value="">— Pilih game —</option>
+                    {gameSetups.map((game) => (
+                      <option key={game.id} value={game.id}>
+                        {game.nama_game}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">expand_more</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => openSetup("create")}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-on-primary hover:opacity-90 transition-colors text-[13px] font-semibold"
+                >
+                  <span className="material-symbols-outlined text-[18px]">add_circle</span>
+                  Tambah Game
+                </button>
+                {setup && (
+                  <button
+                    onClick={() => openSetup("edit")}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-outline-variant text-on-surface-variant hover:bg-surface-container-high transition-colors text-[13px]"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">settings</span>
+                    Ubah Setup
+                  </button>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {!selectedId && (
+          <Card className="p-16 text-center text-on-surface-variant">
+            <span className="material-symbols-outlined text-[72px] block mb-4 opacity-20">sports_esports</span>
+            <p className="text-body-md font-semibold">Pilih kegiatan terlebih dahulu</p>
+            <p className="text-body-sm mt-1">Gunakan dropdown di atas untuk memilih kegiatan game.</p>
+          </Card>
+        )}
+
+        {selectedId && (
+          <>
+            {/* Info chips + actions */}
+            {kegiatanInfo && (
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-container border border-outline-variant text-body-sm text-on-surface">
+                  <span className="material-symbols-outlined text-primary text-[16px]">event</span>
+                  {kegiatanInfo.judul}
+                </div>
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-container border border-outline-variant text-body-sm text-on-surface-variant">
+                  <span className="material-symbols-outlined text-[16px]">calendar_today</span>
+                  {formatTanggal(kegiatanInfo.tanggal)}
+                </div>
+                {kegiatanInfo.lokasi && (
+                  <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-container border border-outline-variant text-body-sm text-on-surface-variant">
+                    <span className="material-symbols-outlined text-[16px]">location_on</span>
+                    {kegiatanInfo.lokasi}
+                  </div>
+                )}
+                {hadirCount !== null && (
+                  <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-tertiary-container border border-tertiary/20 text-body-sm text-on-tertiary-container">
+                    <span className="material-symbols-outlined text-[16px]">how_to_reg</span>
+                    {hadirCount} peserta hadir
+                  </div>
+                )}
+                {setup && (
+                  <>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-container border border-outline-variant text-body-sm text-on-surface">
+                      <span className="material-symbols-outlined text-[16px]">sports_esports</span>
+                      {setup.nama_game}
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary-fixed border border-primary/20 text-body-sm text-on-primary-fixed-variant">
+                      <span className="material-symbols-outlined text-[16px]">emoji_events</span>
+                      {winners.length} / {setup.jumlah_hadiah} peserta terpilih diundi
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-secondary-fixed border border-secondary/20 text-body-sm text-on-secondary-fixed-variant">
+                      <span className="material-symbols-outlined text-[16px]">groups</span>
+                      {setup.jumlah_per_undi ?? 10} peserta terpilih / pengundian
+                    </div>
+                  </>
+                )}
+                <div className="ml-auto flex gap-2">
+                  <button
+                    onClick={() => openSetup(setup ? "edit" : "create")}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl border border-outline-variant text-on-surface-variant hover:bg-surface-container-high transition-colors text-[13px]"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">settings</span>
+                    {setup ? "Ubah Setup" : "Setup Game"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Main action area */}
+            {loading ? (
+              <Card className="p-12 text-center text-on-surface-variant">
+                <span className="material-symbols-outlined text-[40px] opacity-30 block mb-2">hourglass_empty</span>
+                <p className="text-body-sm">Memuat...</p>
+              </Card>
+            ) : !setup ? (
+              <Card className="p-16 text-center text-on-surface-variant">
+                <span className="material-symbols-outlined text-[56px] block mb-4 opacity-30">tune</span>
+                <p className="text-body-md font-semibold">Setup game belum dikonfigurasi</p>
+                <p className="text-body-sm mt-1 mb-6">Tentukan nama game dan jumlah peserta terpilih sebelum memulai pengundian.</p>
+                <Button icon="settings" onClick={() => openSetup("create")}>Setup Game</Button>
+              </Card>
+            ) : (
+              <Card className="p-6 flex flex-col gap-5">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                      <span className="material-symbols-outlined material-symbols-filled text-primary text-[36px]">sports_esports</span>
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-on-surface text-lg">{setup.nama_game}</h3>
+                      <p className="text-on-surface-variant text-[13px]">
+                        {winners.length} dari {setup.jumlah_hadiah} peserta terpilih sudah diundi. Maksimal {setup.jumlah_per_undi ?? 10} peserta terpilih per pengundian.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {isSlotFull ? (
+                      <div className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-tertiary-container text-on-tertiary-container font-semibold text-[14px]">
+                        <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                        Pengundian Sudah Habis
+                      </div>
+                    ) : (
+                      <button
+                        onClick={openUndian}
+                        className="flex items-center gap-3 px-8 py-3.5 rounded-2xl font-bold text-[15px] bg-primary text-on-primary hover:opacity-90 active:scale-95 transition-all shadow-md"
+                      >
+                        <span className="material-symbols-outlined material-symbols-filled text-[24px]">play_circle</span>
+                        Mulai Pengundian
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div>
+                  <div className="flex justify-between text-[11px] text-on-surface-variant mb-1.5 uppercase tracking-widest">
+                    <span>Progress Peserta Terpilih</span>
+                    <span>{Math.round((winners.length / setup.jumlah_hadiah) * 100)}%</span>
+                  </div>
+                  <div className="h-2.5 bg-surface-container-high rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-700"
+                      style={{ width: `${(winners.length / setup.jumlah_hadiah) * 100}%` }}
+                    />
+                  </div>
+                </div>
+
+                {isSlotFull && (
+                  <div className="flex items-start gap-3 rounded-xl border border-tertiary/20 bg-tertiary-container px-5 py-4 text-on-tertiary-container">
+                    <span className="material-symbols-outlined text-[22px] shrink-0">task_alt</span>
+                    <div>
+                      <p className="font-bold text-[14px]">Pengundian sudah habis</p>
+                      <p className="text-[12px] mt-0.5 opacity-80">
+                        Semua kuota peserta terpilih sudah terpenuhi. Batalkan peserta terpilih terlebih dahulu jika perlu membuka slot pengundian lagi.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )}
+
+            {/* Winners table */}
+            {winners.length > 0 && (
+              <Card className="flex flex-col">
+                <div className="p-6 border-b border-outline-variant flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined material-symbols-filled text-secondary text-[22px]">emoji_events</span>
+                    <h4 className="font-h3 text-[20px] text-on-surface">Daftar Peserta Terpilih</h4>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge label={`${winners.length} peserta terpilih`} variant="info" />
+                    {selectedWinnerCount > 0 && (
+                      <button
+                        onClick={() => void handleBatalkanSelectedWinners()}
+                        disabled={cancellingSelected}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-error text-error text-[12px] font-medium hover:bg-error-container/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">undo</span>
+                        {cancellingSelected ? "Membatalkan..." : `Batalkan ${selectedWinnerCount} Peserta Terpilih`}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => void handleDownloadWinnersPdf()}
+                      disabled={downloadingPdf}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-primary text-primary text-[12px] font-medium hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+                      {downloadingPdf ? "Mengunduh PDF..." : "Unduh PDF"}
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-body-sm">
+                    <thead>
+                      <tr className="bg-surface-container border-b border-outline-variant text-on-surface-variant text-[11px] uppercase tracking-widest">
+                        <th className="px-4 py-3 text-center w-10">
+                          <input
+                            type="checkbox"
+                            aria-label="Pilih semua peserta terpilih"
+                            checked={allWinnersSelected}
+                            onChange={toggleAllWinners}
+                            className="h-4 w-4 accent-primary"
+                          />
+                        </th>
+                        <th className="px-5 py-3 text-center w-12">#</th>
+                        <th className="px-5 py-3 text-center">Foto</th>
+                        <th className="px-5 py-3 text-left">Nama</th>
+                        <th className="px-5 py-3 text-left">Jenis</th>
+                        <th className="px-5 py-3 text-left">NIP</th>
+                        <th className="px-5 py-3 text-left">Jabatan</th>
+                        <th className="px-5 py-3 text-left">Instansi / Unit Kerja</th>
+                        <th className="px-5 py-3 text-center">Waktu</th>
+                        <th className="px-3 py-3 w-12"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/40">
+                      {winners.map((w) => (
+                        <tr
+                          key={w.id}
+                          className={`hover:bg-surface-container-low transition-colors ${
+                            selectedWinnerIds.has(w.id) ? "bg-primary-fixed/40" : ""
+                          }`}
+                        >
+                          <td className="px-4 py-3.5 text-center">
+                            <input
+                              type="checkbox"
+                              aria-label={`Pilih peserta terpilih ${w.nama}`}
+                              checked={selectedWinnerIds.has(w.id)}
+                              onChange={() => toggleWinnerSelection(w.id)}
+                              className="h-4 w-4 accent-primary"
+                            />
+                          </td>
+                          <td className="px-5 py-3.5 text-center">
+                            <span className="inline-flex w-8 h-8 items-center justify-center rounded-full bg-secondary-fixed text-secondary font-bold text-[13px]">
+                              {w.urutan}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-center">
+                            <div className="inline-flex w-12 h-12 rounded-xl overflow-hidden bg-surface-container-high border border-outline-variant items-center justify-center">
+                              {w.foto ? (
+                                <>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={w.foto} alt={`Foto ${w.nama}`} className="w-full h-full object-cover" />
+                                </>
+                              ) : (
+                                <span className="material-symbols-outlined text-on-surface-variant text-[24px]">person</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5 font-bold text-on-surface uppercase whitespace-nowrap text-[15px]">{w.nama}</td>
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            <Badge label={w.peserta_tipe === "tamu" ? "Tamu" : "Anggota"} variant={w.peserta_tipe === "tamu" ? "warning" : "info"} />
+                          </td>
+                          <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.nip || "-"}</td>
+                          <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.jabatan || "-"}</td>
+                          <td className="px-5 py-3.5 text-on-surface-variant whitespace-nowrap">{w.unit_kerja || w.instansi || "-"}</td>
+                          <td className="px-5 py-3.5 text-on-surface-variant text-center whitespace-nowrap text-[12px]">
+                            {w.waktu ? new Date(w.waktu).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"}
+                          </td>
+                          <td className="px-3 py-3.5 text-center">
+                            <button
+                              onClick={() => handleBatalkanWinner(w.id, w.nama)}
+                              className="p-1.5 rounded-lg text-error hover:bg-error-container/30 transition-colors"
+                              title="Batalkan peserta terpilih"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">undo</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+          </>
+        )}
+      </div>
+    </AppLayout>
+  );
+}
