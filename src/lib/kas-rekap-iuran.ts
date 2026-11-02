@@ -13,6 +13,7 @@ export const REKAP_IURAN_FUND_DEFS = [
   { code: "iuran_anggota", name: "Kas Iuran Arisan Anggota" },
   { code: "iuran_konsumsi_anggota", name: "Kas Iuran Konsumsi" },
   { code: "iuran_pengurus", name: "Kas Iuran Pengurus" },
+  { code: "iuran_umroh_pengurus", name: "Kas Iuran Umroh Pengurus" },
 ] as const;
 
 export type RekapIuranFundCode = (typeof REKAP_IURAN_FUND_DEFS)[number]["code"];
@@ -25,6 +26,8 @@ interface AggregateRow extends RowDataPacket {
   out_iuran_konsumsi_anggota: number | string | null;
   in_iuran_pengurus: number | string | null;
   out_iuran_pengurus: number | string | null;
+  in_iuran_umroh_pengurus: number | string | null;
+  out_iuran_umroh_pengurus: number | string | null;
 }
 
 interface TransactionRow extends RowDataPacket {
@@ -140,6 +143,10 @@ function aggregateFromRow(row?: AggregateRow) {
       pemasukan: Number(row?.in_iuran_pengurus ?? 0),
       pengeluaran: Number(row?.out_iuran_pengurus ?? 0),
     },
+    iuran_umroh_pengurus: {
+      pemasukan: Number(row?.in_iuran_umroh_pengurus ?? 0),
+      pengeluaran: Number(row?.out_iuran_umroh_pengurus ?? 0),
+    },
   };
 }
 
@@ -169,7 +176,9 @@ async function getAggregate(whereSql: string, args: string[]) {
        COALESCE(SUM(CASE WHEN t.type='income' AND c.code='IURAN_KONSUMSI_ANGGOTA' THEN t.amount ELSE 0 END), 0) AS in_iuran_konsumsi_anggota,
        COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='iuran_konsumsi_anggota' THEN t.amount ELSE 0 END), 0) AS out_iuran_konsumsi_anggota,
        COALESCE(SUM(CASE WHEN t.type='income' AND c.code='IURAN_PENGURUS' THEN t.amount ELSE 0 END), 0) AS in_iuran_pengurus,
-       COALESCE(SUM(CASE WHEN t.type='expense' AND (t.source_fund='iuran_pengurus' OR c.code='ARISAN_PENGURUS') THEN t.amount ELSE 0 END), 0) AS out_iuran_pengurus
+       COALESCE(SUM(CASE WHEN t.type='expense' AND (t.source_fund='iuran_pengurus' OR c.code='ARISAN_PENGURUS') THEN t.amount ELSE 0 END), 0) AS out_iuran_pengurus,
+       COALESCE(SUM(CASE WHEN t.type='income' AND c.code='IURAN_UMROH_PENGURUS' THEN t.amount ELSE 0 END), 0) AS in_iuran_umroh_pengurus,
+       COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='iuran_umroh_pengurus' THEN t.amount ELSE 0 END), 0) AS out_iuran_umroh_pengurus
      FROM cash_transactions t
      INNER JOIN cash_categories c ON c.id = t.category_id
      WHERE t.status='approved' AND ${whereSql}`,
@@ -206,7 +215,9 @@ export async function getRekapIuranKas(searchParams: URLSearchParams): Promise<R
          COALESCE(SUM(CASE WHEN t.type='income' AND c.code='IURAN_KONSUMSI_ANGGOTA' THEN t.amount ELSE 0 END), 0) AS in_iuran_konsumsi_anggota,
          COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='iuran_konsumsi_anggota' THEN t.amount ELSE 0 END), 0) AS out_iuran_konsumsi_anggota,
          COALESCE(SUM(CASE WHEN t.type='income' AND c.code='IURAN_PENGURUS' THEN t.amount ELSE 0 END), 0) AS in_iuran_pengurus,
-         COALESCE(SUM(CASE WHEN t.type='expense' AND (t.source_fund='iuran_pengurus' OR c.code='ARISAN_PENGURUS') THEN t.amount ELSE 0 END), 0) AS out_iuran_pengurus
+         COALESCE(SUM(CASE WHEN t.type='expense' AND (t.source_fund='iuran_pengurus' OR c.code='ARISAN_PENGURUS') THEN t.amount ELSE 0 END), 0) AS out_iuran_pengurus,
+         COALESCE(SUM(CASE WHEN t.type='income' AND c.code='IURAN_UMROH_PENGURUS' THEN t.amount ELSE 0 END), 0) AS in_iuran_umroh_pengurus,
+         COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='iuran_umroh_pengurus' THEN t.amount ELSE 0 END), 0) AS out_iuran_umroh_pengurus
        FROM cash_transactions t
        INNER JOIN cash_categories c ON c.id = t.category_id
        WHERE t.status='approved' AND t.transaction_date BETWEEN ? AND ?
@@ -222,8 +233,10 @@ export async function getRekapIuranKas(searchParams: URLSearchParams): Promise<R
            WHEN t.type='income' AND c.code='IURAN_ANGGOTA' THEN 'iuran_anggota'
            WHEN t.type='income' AND c.code='IURAN_KONSUMSI_ANGGOTA' THEN 'iuran_konsumsi_anggota'
            WHEN t.type='income' AND c.code='IURAN_PENGURUS' THEN 'iuran_pengurus'
+           WHEN t.type='income' AND c.code='IURAN_UMROH_PENGURUS' THEN 'iuran_umroh_pengurus'
            WHEN t.type='expense' AND (t.source_fund='iuran_anggota' OR c.code='ARISAN_ANGGOTA') THEN 'iuran_anggota'
            WHEN t.type='expense' AND t.source_fund='iuran_konsumsi_anggota' THEN 'iuran_konsumsi_anggota'
+           WHEN t.type='expense' AND t.source_fund='iuran_umroh_pengurus' THEN 'iuran_umroh_pengurus'
            WHEN t.type='expense' AND (t.source_fund='iuran_pengurus' OR c.code='ARISAN_PENGURUS') THEN 'iuran_pengurus'
          END AS dana_code
        FROM cash_transactions t
@@ -231,8 +244,8 @@ export async function getRekapIuranKas(searchParams: URLSearchParams): Promise<R
        WHERE t.status='approved'
          AND t.transaction_date BETWEEN ? AND ?
          AND (
-           (t.type='income' AND c.code IN ('IURAN_ANGGOTA','IURAN_KONSUMSI_ANGGOTA','IURAN_PENGURUS'))
-           OR (t.type='expense' AND (t.source_fund IN ('iuran_anggota','iuran_konsumsi_anggota','iuran_pengurus') OR c.code IN ('ARISAN_ANGGOTA','ARISAN_PENGURUS')))
+           (t.type='income' AND c.code IN ('IURAN_ANGGOTA','IURAN_KONSUMSI_ANGGOTA','IURAN_PENGURUS','IURAN_UMROH_PENGURUS'))
+           OR (t.type='expense' AND (t.source_fund IN ('iuran_anggota','iuran_konsumsi_anggota','iuran_pengurus','iuran_umroh_pengurus') OR c.code IN ('ARISAN_ANGGOTA','ARISAN_PENGURUS')))
          )
        ORDER BY t.transaction_date ASC, t.id ASC`,
       [fromDate, toDate]
@@ -244,16 +257,19 @@ export async function getRekapIuranKas(searchParams: URLSearchParams): Promise<R
     iuran_anggota: saldoAwalAggregate.iuran_anggota.pemasukan - saldoAwalAggregate.iuran_anggota.pengeluaran,
     iuran_konsumsi_anggota: saldoAwalAggregate.iuran_konsumsi_anggota.pemasukan - saldoAwalAggregate.iuran_konsumsi_anggota.pengeluaran,
     iuran_pengurus: saldoAwalAggregate.iuran_pengurus.pemasukan - saldoAwalAggregate.iuran_pengurus.pengeluaran,
+    iuran_umroh_pengurus: saldoAwalAggregate.iuran_umroh_pengurus.pemasukan - saldoAwalAggregate.iuran_umroh_pengurus.pengeluaran,
   };
   const totalPemasukan: Record<RekapIuranFundCode, number> = {
     iuran_anggota: 0,
     iuran_konsumsi_anggota: 0,
     iuran_pengurus: 0,
+    iuran_umroh_pengurus: 0,
   };
   const totalPengeluaran: Record<RekapIuranFundCode, number> = {
     iuran_anggota: 0,
     iuran_konsumsi_anggota: 0,
     iuran_pengurus: 0,
+    iuran_umroh_pengurus: 0,
   };
 
   const monthly: RekapIuranMonthlyRow[] = [];

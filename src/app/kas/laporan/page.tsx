@@ -22,6 +22,7 @@ interface Lap {
     iuran_arisan: number;
     iuran_konsumsi: number;
     iuran_pengurus: number;
+    iuran_umroh_pengurus: number;
     total: number;
   };
   dana_iuran: DanaIuran[];
@@ -76,6 +77,7 @@ export default function LaporanKasPage() {
     lines.push(["Iuran Arisan", String(data.total_saldo_akhir.iuran_arisan)]);
     lines.push(["Iuran Konsumsi", String(data.total_saldo_akhir.iuran_konsumsi)]);
     lines.push(["Iuran Pengurus", String(data.total_saldo_akhir.iuran_pengurus)]);
+    lines.push(["Iuran Umroh Pengurus", String(data.total_saldo_akhir.iuran_umroh_pengurus)]);
     lines.push(["Total Saldo Akhir", String(data.total_saldo_akhir.total)]);
     lines.push([""]);
     lines.push(["SALDO DANA IURAN"]);
@@ -163,6 +165,7 @@ export default function LaporanKasPage() {
                 <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Iuran Arisan</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.iuran_arisan)}</p></div>
                 <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Iuran Konsumsi</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.iuran_konsumsi)}</p></div>
                 <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Iuran Pengurus</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.iuran_pengurus)}</p></div>
+                <div className="p-4 bg-surface-container-low rounded-xl"><p className="text-label-sm text-on-surface-variant">Iuran Umroh Pengurus</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.iuran_umroh_pengurus)}</p></div>
                 <div className="p-4 bg-primary-container/30 rounded-xl"><p className="text-label-sm text-on-surface-variant">Total Saldo Akhir</p><p className="font-h3 text-h3 text-primary">{fmt(data.total_saldo_akhir.total)}</p></div>
               </div>
             </Card>

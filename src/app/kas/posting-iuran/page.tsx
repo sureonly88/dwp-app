@@ -10,13 +10,14 @@ interface Preview {
   periode: { bulan: number; tahun: number; awal: string; akhir: string; label: string };
   summary: {
     total_anggota_aktif: number; total_pengurus_aktif: number;
-    total_iuran_anggota: number; total_iuran_konsumsi_anggota: number; total_iuran_pengurus: number; grand_total: number;
+    total_iuran_anggota: number; total_iuran_konsumsi_anggota: number; total_iuran_pengurus: number; total_iuran_umroh_pengurus: number; grand_total: number;
   };
   tarif: { nominal_anggota: number; nominal_konsumsi_anggota: number; nominal_pengurus: number } | null;
   posting: {
     iuran_anggota: { amount: number; jumlah_anggota: number; existing: ExistingPost | null };
     iuran_konsumsi_anggota: { amount: number; jumlah_anggota: number; existing: ExistingPost | null };
     iuran_pengurus: { amount: number; jumlah_pengurus: number; existing: ExistingPost | null };
+    iuran_umroh_pengurus: { amount: number; jumlah_pengurus: number; nominal: number; berlaku: boolean; periode_mulai: string; existing: ExistingPost | null };
   };
 }
 interface ExistingPost { id: number; transaction_number: string; status: string; transaction_date: string; amount: number }
@@ -68,12 +69,13 @@ export default function PostingIuranPage() {
     setTanggalPosting(getMonthEndDate(bulan, value));
   };
 
-  const post = async (jenis: "anggota" | "konsumsi" | "pengurus" | "both") => {
+  const post = async (jenis: "anggota" | "konsumsi" | "pengurus" | "umroh" | "both") => {
     if (!tanggalPosting) {
       showToast("Tanggal posting wajib diisi", "error");
       return;
     }
-    if (!confirm(`Posting iuran ${jenis} untuk ${MONTHS[bulan-1]} ${tahun} pada ${tanggalPosting}?`)) return;
+    const label = jenis === "both" ? "semua jenis" : jenis === "umroh" ? "umroh pengurus" : jenis;
+    if (!confirm(`Posting iuran ${label} untuk ${MONTHS[bulan-1]} ${tahun} pada ${tanggalPosting}?`)) return;
     setPosting(true);
     try {
       const res = await fetch("/api/kas/posting-iuran", {
@@ -140,6 +142,7 @@ export default function PostingIuranPage() {
                   <div><span className="text-on-surface-variant">Tarif arisan anggota:</span> <b>{data.tarif ? fmt(data.tarif.nominal_anggota) : "-"}</b></div>
                   <div><span className="text-on-surface-variant">Tarif konsumsi anggota:</span> <b>{data.tarif ? fmt(data.tarif.nominal_konsumsi_anggota) : "-"}</b></div>
                   <div><span className="text-on-surface-variant">Tarif pengurus:</span> <b>{data.tarif ? fmt(data.tarif.nominal_pengurus) : "-"}</b></div>
+                  <div><span className="text-on-surface-variant">Tarif umroh pengurus:</span> <b>{data.posting.iuran_umroh_pengurus.berlaku ? fmt(data.posting.iuran_umroh_pengurus.nominal) : "Mulai Oktober 2026"}</b></div>
                   <div><span className="text-on-surface-variant">Total iuran:</span> <b>{fmt(data.summary.grand_total)}</b></div>
                 </div>
               </div>
@@ -156,14 +159,20 @@ export default function PostingIuranPage() {
                   { key: "anggota", label: "Arisan Anggota", item: data.posting.iuran_anggota, jumlah: data.posting.iuran_anggota.jumlah_anggota, satuan: "anggota" },
                   { key: "konsumsi", label: "Konsumsi Anggota", item: data.posting.iuran_konsumsi_anggota, jumlah: data.posting.iuran_konsumsi_anggota.jumlah_anggota, satuan: "anggota" },
                   { key: "pengurus", label: "Pengurus", item: data.posting.iuran_pengurus, jumlah: data.posting.iuran_pengurus.jumlah_pengurus, satuan: "pengurus" },
+                  { key: "umroh", label: "Umroh Pengurus", item: data.posting.iuran_umroh_pengurus, jumlah: data.posting.iuran_umroh_pengurus.jumlah_pengurus, satuan: "pengurus" },
                 ] as const).map(({ key, label, item, jumlah, satuan }) => {
                   return (
                     <Card key={key} className="p-5 border border-outline-variant" hover={false}>
                       <div className="flex items-start justify-between mb-2">
                         <h4 className="font-label-md text-on-surface uppercase tracking-wide">Iuran {label}</h4>
-                        {item.existing ? <Badge label={`Sudah diposting (${item.existing.status})`} variant="success" dot /> : <Badge label="Belum diposting" variant="warning" />}
+                        {item.existing ? <Badge label={`Sudah diposting (${item.existing.status})`} variant="success" dot /> : key === "umroh" && !data.posting.iuran_umroh_pengurus.berlaku ? <Badge label="Belum berlaku" variant="info" /> : <Badge label="Belum diposting" variant="warning" />}
                       </div>
                       <p className="text-body-sm text-on-surface-variant">{jumlah} {satuan}</p>
+                      {key === "umroh" && (
+                        <p className="text-[11px] text-on-surface-variant mt-1">
+                          Rp1.000.000 per pengurus per bulan, berlaku mulai Oktober 2026.
+                        </p>
+                      )}
                       {key === "konsumsi" && (
                         <p className="text-[11px] text-on-surface-variant mt-1">
                           Diposting terpisah agar tampil di laporan bulanan kas.
@@ -185,9 +194,9 @@ export default function PostingIuranPage() {
                 <Card className="p-5 border border-outline-variant bg-tertiary-container" hover={false}>
                   <div className="flex items-start justify-between mb-2">
                     <h4 className="font-label-md text-on-tertiary-container uppercase tracking-wide">Total Iuran</h4>
-                    <Badge label="Anggota + Konsumsi + Pengurus" variant="info" />
+                    <Badge label={data.posting.iuran_umroh_pengurus.berlaku ? "Termasuk Umroh Pengurus" : "Anggota + Konsumsi + Pengurus"} variant="info" />
                   </div>
-                  <p className="text-body-sm text-on-tertiary-container/80">Total iuran arisan anggota, konsumsi anggota, dan iuran pengurus</p>
+                  <p className="text-body-sm text-on-tertiary-container/80">Total iuran arisan anggota, konsumsi anggota, dan pengurus{data.posting.iuran_umroh_pengurus.berlaku ? ", termasuk umroh pengurus" : ""}</p>
                   <p className="font-h2 text-h2 text-on-tertiary-container mt-1">
                     {fmt(data.summary.grand_total)}
                   </p>
@@ -198,7 +207,7 @@ export default function PostingIuranPage() {
                 <button onClick={() => post("both")} disabled={posting}
                   className="px-5 py-2.5 bg-tertiary text-on-tertiary rounded-xl font-label-md inline-flex items-center gap-2 hover:opacity-90 disabled:opacity-40">
                   <span className="material-symbols-outlined text-[18px]">post_add</span>
-                  Posting Semua (Anggota + Konsumsi + Pengurus)
+                  Posting Semua (Anggota + Konsumsi + Pengurus{data.posting.iuran_umroh_pengurus.berlaku ? " + Umroh" : ""})
                 </button>
               </div>
 

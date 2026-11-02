@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
   await pool.execute(
     `INSERT IGNORE INTO cash_categories (code, name, type, is_system, description) VALUES
       ('IURAN_KONSUMSI_ANGGOTA', 'Iuran Konsumsi Anggota', 'income', 1, 'Posting rekap iuran konsumsi anggota dari modul Iuran'),
+      ('IURAN_UMROH_PENGURUS', 'Iuran Umroh Pengurus', 'income', 1, 'Iuran umroh Rp1.000.000 per pengurus per bulan mulai Oktober 2026'),
       ('PENJUALAN_BARANG', 'Penjualan Barang', 'income', 1, 'Otomatis dari modul Penjualan'),
       ('DONASI', 'Donasi', 'income', 0, 'Sumbangan dari donatur')`
   );
@@ -97,7 +98,8 @@ export async function GET(req: NextRequest) {
   const saldoIuranArisan = Number(sourceFundsAllTime.find((item) => item.code === "iuran_anggota")?.saldo_akhir ?? 0);
   const saldoIuranKonsumsi = Number(sourceFundsAllTime.find((item) => item.code === "iuran_konsumsi_anggota")?.saldo_akhir ?? 0);
   const saldoIuranPengurus = Number(sourceFundsAllTime.find((item) => item.code === "iuran_pengurus")?.saldo_akhir ?? 0);
-  const totalSaldoAkhir = saldoDonasi + saldoPenjualanBarang + saldoIuranArisan + saldoIuranKonsumsi + saldoIuranPengurus;
+  const saldoIuranUmrohPengurus = Number(sourceFundsAllTime.find((item) => item.code === "iuran_umroh_pengurus")?.saldo_akhir ?? 0);
+  const totalSaldoAkhir = saldoDonasi + saldoPenjualanBarang + saldoIuranArisan + saldoIuranKonsumsi + saldoIuranPengurus + saldoIuranUmrohPengurus;
 
   return NextResponse.json({
     periode: {
@@ -118,6 +120,7 @@ export async function GET(req: NextRequest) {
       iuran_arisan: saldoIuranArisan,
       iuran_konsumsi: saldoIuranKonsumsi,
       iuran_pengurus: saldoIuranPengurus,
+      iuran_umroh_pengurus: saldoIuranUmrohPengurus,
       total: totalSaldoAkhir,
     },
     sumber_dana: sourceFunds,

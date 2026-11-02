@@ -85,15 +85,16 @@ export const SOURCE_FUND_OPTIONS = [
   { code: "iuran_anggota", label: "Iuran Arisan Anggota" },
   { code: "iuran_konsumsi_anggota", label: "Iuran Konsumsi Anggota" },
   { code: "iuran_pengurus", label: "Iuran Pengurus" },
+  { code: "iuran_umroh_pengurus", label: "Iuran Umroh Pengurus" },
 ] as const;
 
 export type SourceFundCode = (typeof SOURCE_FUND_OPTIONS)[number]["code"];
-type IuranSourceFundCode = "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
+type IuranSourceFundCode = "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus" | "iuran_umroh_pengurus";
 
 export interface DanaIuranBalance {
   code: IuranSourceFundCode;
   name: string;
-  category_code: "IURAN_ANGGOTA" | "IURAN_KONSUMSI_ANGGOTA" | "IURAN_PENGURUS";
+  category_code: "IURAN_ANGGOTA" | "IURAN_KONSUMSI_ANGGOTA" | "IURAN_PENGURUS" | "IURAN_UMROH_PENGURUS";
   saldo_awal: number;
   total_pemasukan: number;
   total_pengeluaran: number;
@@ -117,6 +118,7 @@ const DANA_IURAN_DEFS: Array<{
   { code: "iuran_anggota", name: "Iuran Arisan Anggota", category_code: "IURAN_ANGGOTA" },
   { code: "iuran_konsumsi_anggota", name: "Iuran Konsumsi Anggota", category_code: "IURAN_KONSUMSI_ANGGOTA" },
   { code: "iuran_pengurus", name: "Iuran Pengurus", category_code: "IURAN_PENGURUS" },
+  { code: "iuran_umroh_pengurus", name: "Iuran Umroh Pengurus", category_code: "IURAN_UMROH_PENGURUS" },
 ];
 
 const VALID_SOURCE_FUNDS = new Set<string>(SOURCE_FUND_OPTIONS.map((item) => item.code));
@@ -132,6 +134,8 @@ interface SourceFundAggregateRow extends RowDataPacket {
   out_iuran_konsumsi_anggota: number | string | null;
   in_iuran_pengurus: number | string | null;
   out_iuran_pengurus: number | string | null;
+  in_iuran_umroh_pengurus: number | string | null;
+  out_iuran_umroh_pengurus: number | string | null;
 }
 
 const AUTO_SOURCE_FUND_BY_CATEGORY_CODE: Partial<Record<string, SourceFundCode>> = {
@@ -213,6 +217,7 @@ async function getSourceFundAggregate(filter?: { from?: string; to?: string; bef
         iuran_anggota: { pemasukan: 0, pengeluaran: 0 },
         iuran_konsumsi_anggota: { pemasukan: 0, pengeluaran: 0 },
         iuran_pengurus: { pemasukan: 0, pengeluaran: 0 },
+        iuran_umroh_pengurus: { pemasukan: 0, pengeluaran: 0 },
       };
     }
   } else {
@@ -232,7 +237,7 @@ async function getSourceFundAggregate(filter?: { from?: string; to?: string; bef
        COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='donasi' THEN t.amount ELSE 0 END), 0) AS out_donasi,
        COALESCE(SUM(CASE
          WHEN t.type='income'
-          AND c.code NOT IN ('DONASI', 'IURAN_ANGGOTA', 'IURAN_KONSUMSI_ANGGOTA', 'IURAN_PENGURUS')
+          AND c.code NOT IN ('DONASI', 'IURAN_ANGGOTA', 'IURAN_KONSUMSI_ANGGOTA', 'IURAN_PENGURUS', 'IURAN_UMROH_PENGURUS')
          THEN t.amount ELSE 0 END), 0) AS in_penjualan_barang,
        COALESCE(SUM(CASE
          WHEN t.type='expense'
@@ -244,7 +249,9 @@ async function getSourceFundAggregate(filter?: { from?: string; to?: string; bef
        COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='IURAN_KONSUMSI_ANGGOTA' THEN t.amount ELSE 0 END), 0) AS in_iuran_konsumsi_anggota,
        COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='iuran_konsumsi_anggota' THEN t.amount ELSE 0 END), 0) AS out_iuran_konsumsi_anggota,
        COALESCE(SUM(CASE WHEN t.type='income'  AND c.code='IURAN_PENGURUS' THEN t.amount ELSE 0 END), 0) AS in_iuran_pengurus,
-       COALESCE(SUM(CASE WHEN t.type='expense' AND (t.source_fund='iuran_pengurus' OR c.code='ARISAN_PENGURUS') THEN t.amount ELSE 0 END), 0) AS out_iuran_pengurus
+       COALESCE(SUM(CASE WHEN t.type='expense' AND (t.source_fund='iuran_pengurus' OR c.code='ARISAN_PENGURUS') THEN t.amount ELSE 0 END), 0) AS out_iuran_pengurus,
+       COALESCE(SUM(CASE WHEN t.type='income' AND c.code='IURAN_UMROH_PENGURUS' THEN t.amount ELSE 0 END), 0) AS in_iuran_umroh_pengurus,
+       COALESCE(SUM(CASE WHEN t.type='expense' AND t.source_fund='iuran_umroh_pengurus' THEN t.amount ELSE 0 END), 0) AS out_iuran_umroh_pengurus
      FROM cash_transactions t
      INNER JOIN cash_categories c ON c.id = t.category_id
      WHERE ${where.join(" AND ")}`,
@@ -272,6 +279,10 @@ async function getSourceFundAggregate(filter?: { from?: string; to?: string; bef
       pemasukan: Number(row.in_iuran_pengurus ?? 0),
       pengeluaran: Number(row.out_iuran_pengurus ?? 0),
     },
+    iuran_umroh_pengurus: {
+      pemasukan: Number(row.in_iuran_umroh_pengurus ?? 0),
+      pengeluaran: Number(row.out_iuran_umroh_pengurus ?? 0),
+    },
   };
 }
 
@@ -283,6 +294,7 @@ export async function getSourceFundBalances(filter?: { from?: string; to?: strin
       iuran_anggota: { pemasukan: 0, pengeluaran: 0 },
       iuran_konsumsi_anggota: { pemasukan: 0, pengeluaran: 0 },
       iuran_pengurus: { pemasukan: 0, pengeluaran: 0 },
+      iuran_umroh_pengurus: { pemasukan: 0, pengeluaran: 0 },
     }),
     getSourceFundAggregate({ from: filter?.from, to: filter?.to }),
   ]);

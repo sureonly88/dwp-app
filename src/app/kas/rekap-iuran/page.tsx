@@ -61,7 +61,7 @@ interface RekapIuranResponse {
   transaksi: TransactionRow[];
 }
 
-type PrintScope = "all" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
+type PrintScope = "all" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus" | "iuran_umroh_pengurus";
 
 const MONTHS = [
   "Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -73,6 +73,7 @@ const PRINT_SCOPE_OPTIONS: Array<{ value: PrintScope; label: string }> = [
   { value: "iuran_anggota", label: "Iuran Kas Anggota" },
   { value: "iuran_konsumsi_anggota", label: "Iuran Kas Konsumsi" },
   { value: "iuran_pengurus", label: "Iuran Kas Pengurus" },
+  { value: "iuran_umroh_pengurus", label: "Iuran Umroh Pengurus" },
 ];
 
 const fmt = (n: number) => "Rp " + (n ?? 0).toLocaleString("id-ID");

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { requireSession, generateTransactionNumber } from "@/lib/kas";
 import { getLaporanIuran } from "@/lib/iuran";
+import { getIuranUmrohPengurus, IURAN_UMROH_PENGURUS_MULAI } from "@/lib/iuran-umroh";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { requireAdmin } from "@/lib/admin-auth";
 
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest) {
   const tahun = Math.max(2000, parseInt(sp.get("tahun") ?? `${new Date().getFullYear()}`, 10));
 
   const lap = await getLaporanIuran({ bulan, tahun });
+  const umroh = getIuranUmrohPengurus(bulan, tahun, lap.summary.total_pengurus_aktif);
   const ym = `${tahun}-${String(bulan).padStart(2, "0")}`;
 
   await ensureIuranKasCategory();
@@ -25,7 +27,7 @@ export async function GET(req: NextRequest) {
   const [postingRows] = await pool.execute<RowDataPacket[]>(
     `SELECT id, transaction_number, type, amount, status, source_type, source_id, transaction_date
        FROM cash_transactions
-      WHERE source_type IN ('iuran_anggota','iuran_konsumsi_anggota','iuran_pengurus') AND source_id = ?`,
+      WHERE source_type IN ('iuran_anggota','iuran_konsumsi_anggota','iuran_pengurus','iuran_umroh_pengurus') AND source_id = ?`,
     [ym]
   );
 
@@ -33,7 +35,11 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     periode: lap.periode,
-    summary: lap.summary,
+    summary: {
+      ...lap.summary,
+      total_iuran_umroh_pengurus: umroh.amount,
+      grand_total: lap.summary.grand_total + umroh.amount,
+    },
     tarif: lap.tarif,
     posting: {
       iuran_anggota: {
@@ -51,12 +57,18 @@ export async function GET(req: NextRequest) {
         jumlah_pengurus: lap.summary.total_pengurus_aktif,
         existing: findPost("iuran_pengurus"),
       },
+      iuran_umroh_pengurus: {
+        ...umroh,
+        periode_mulai: IURAN_UMROH_PENGURUS_MULAI,
+        jumlah_pengurus: lap.summary.total_pengurus_aktif,
+        existing: findPost("iuran_umroh_pengurus"),
+      },
     },
   });
 }
 
 // ============================================================================
-// POST /api/kas/posting-iuran  body: { bulan, tahun, tanggal?, jenis: 'anggota' | 'konsumsi' | 'pengurus' | 'both' }
+// POST /api/kas/posting-iuran  body: { bulan, tahun, tanggal?, jenis: 'anggota' | 'konsumsi' | 'pengurus' | 'umroh' | 'both' }
 // Membuat transaksi kas pemasukan rekap (bukan per anggota).
 // Idempotent: jika sudah pernah posting (uniq source_type+source_id), tolak.
 // ============================================================================
@@ -68,19 +80,24 @@ export async function POST(req: NextRequest) {
     const { response } = await requireAdmin(req);
     if (response) return response;
     const body = await req.json();
-    const bulan = Math.max(1, Math.min(12, Number(body.bulan)));
-    const tahun = Math.max(2000, Number(body.tahun));
+    const bulan = Number(body.bulan);
+    const tahun = Number(body.tahun);
     const tanggal = typeof body.tanggal === "string" ? body.tanggal : "";
-    const jenis = body.jenis as "anggota" | "konsumsi" | "pengurus" | "both";
+    const jenis = body.jenis as "anggota" | "konsumsi" | "pengurus" | "umroh" | "both";
 
-    if (!Number.isFinite(bulan) || !Number.isFinite(tahun)) {
+    if (!Number.isInteger(bulan) || bulan < 1 || bulan > 12 || !Number.isInteger(tahun) || tahun < 2000 || tahun > 9999) {
       return NextResponse.json({ error: "Bulan/tahun tidak valid" }, { status: 400 });
     }
-    if (!["anggota", "konsumsi", "pengurus", "both"].includes(jenis)) {
+    if (!["anggota", "konsumsi", "pengurus", "umroh", "both"].includes(jenis)) {
       return NextResponse.json({ error: "Jenis tidak valid" }, { status: 400 });
     }
 
+    const umrohBerlaku = getIuranUmrohPengurus(bulan, tahun, 0).berlaku;
+    if (jenis === "umroh" && !umrohBerlaku) {
+      return NextResponse.json({ error: "Iuran Umroh Pengurus berlaku mulai Oktober 2026" }, { status: 400 });
+    }
     const lap = await getLaporanIuran({ bulan, tahun });
+    const umroh = getIuranUmrohPengurus(bulan, tahun, lap.summary.total_pengurus_aktif);
     const ym = `${tahun}-${String(bulan).padStart(2, "0")}`;
     const lastDay = new Date(tahun, bulan, 0).getDate();
     const defaultTrxDate = `${ym}-${String(lastDay).padStart(2, "0")}`;
@@ -93,27 +110,28 @@ export async function POST(req: NextRequest) {
     await ensureIuranKasCategory();
 
     const [catRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, code FROM cash_categories WHERE code IN ('IURAN_ANGGOTA','IURAN_KONSUMSI_ANGGOTA','IURAN_PENGURUS')`
+      `SELECT id, code FROM cash_categories WHERE code IN ('IURAN_ANGGOTA','IURAN_KONSUMSI_ANGGOTA','IURAN_PENGURUS','IURAN_UMROH_PENGURUS')`
     );
     const catAnggota = catRows.find((r) => r.code === "IURAN_ANGGOTA");
     const catKonsumsiAnggota = catRows.find((r) => r.code === "IURAN_KONSUMSI_ANGGOTA");
     const catPengurus = catRows.find((r) => r.code === "IURAN_PENGURUS");
-    if (!catAnggota || !catKonsumsiAnggota || !catPengurus) {
+    const catUmroh = catRows.find((r) => r.code === "IURAN_UMROH_PENGURUS");
+    if (!catAnggota || !catKonsumsiAnggota || !catPengurus || !catUmroh) {
       return NextResponse.json({ error: "Kategori sistem iuran tidak ditemukan" }, { status: 500 });
     }
 
     const created: { jenis: string; id: number; amount: number }[] = [];
     const skipped: { jenis: string; reason: string }[] = [];
 
-    const postOne = async (jns: "anggota" | "konsumsi" | "pengurus") => {
-      const sourceType = jns === "anggota" ? "iuran_anggota" : jns === "konsumsi" ? "iuran_konsumsi_anggota" : "iuran_pengurus";
+    const postOne = async (jns: "anggota" | "konsumsi" | "pengurus" | "umroh") => {
+      const sourceType = jns === "anggota" ? "iuran_anggota" : jns === "konsumsi" ? "iuran_konsumsi_anggota" : jns === "umroh" ? "iuran_umroh_pengurus" : "iuran_pengurus";
       const amount = jns === "anggota"
         ? lap.summary.total_iuran_anggota
         : jns === "konsumsi"
           ? lap.summary.total_iuran_konsumsi_anggota
-          : lap.summary.total_iuran_pengurus;
-      const jumlah = jns === "pengurus" ? lap.summary.total_pengurus_aktif : lap.summary.total_anggota_aktif;
-      const categoryId = jns === "anggota" ? catAnggota.id : jns === "konsumsi" ? catKonsumsiAnggota.id : catPengurus.id;
+          : jns === "umroh" ? umroh.amount : lap.summary.total_iuran_pengurus;
+      const jumlah = jns === "pengurus" || jns === "umroh" ? lap.summary.total_pengurus_aktif : lap.summary.total_anggota_aktif;
+      const categoryId = jns === "anggota" ? catAnggota.id : jns === "konsumsi" ? catKonsumsiAnggota.id : jns === "umroh" ? catUmroh.id : catPengurus.id;
 
       if (amount <= 0) {
         skipped.push({ jenis: jns, reason: "Nominal nol" });
@@ -135,7 +153,9 @@ export async function POST(req: NextRequest) {
         ? `Rekap iuran arisan anggota ${lap.periode.label} (${jumlah} anggota)`
         : jns === "konsumsi"
           ? `Rekap iuran konsumsi anggota ${lap.periode.label} (${jumlah} anggota)`
-          : `Rekap iuran pengurus ${lap.periode.label} (${jumlah} pengurus)`;
+          : jns === "umroh"
+            ? `Rekap iuran umroh pengurus ${lap.periode.label} (${jumlah} pengurus × Rp1.000.000)`
+            : `Rekap iuran pengurus ${lap.periode.label} (${jumlah} pengurus)`;
       const [r] = await pool.execute<ResultSetHeader>(
         `INSERT INTO cash_transactions
           (transaction_number, transaction_date, type, category_id, amount,
@@ -149,6 +169,7 @@ export async function POST(req: NextRequest) {
     if (jenis === "anggota" || jenis === "both") await postOne("anggota");
     if (jenis === "konsumsi" || jenis === "both") await postOne("konsumsi");
     if (jenis === "pengurus" || jenis === "both") await postOne("pengurus");
+    if (jenis === "umroh" || (jenis === "both" && umrohBerlaku)) await postOne("umroh");
 
     return NextResponse.json({ ok: true, created, skipped });
   } catch (e) {
@@ -159,7 +180,8 @@ export async function POST(req: NextRequest) {
 async function ensureIuranKasCategory() {
   await pool.execute(
     `INSERT IGNORE INTO cash_categories (code, name, type, is_system, description) VALUES
-      ('IURAN_KONSUMSI_ANGGOTA', 'Iuran Konsumsi Anggota', 'income', 1, 'Posting rekap iuran konsumsi anggota dari modul Iuran')`
+      ('IURAN_KONSUMSI_ANGGOTA', 'Iuran Konsumsi Anggota', 'income', 1, 'Posting rekap iuran konsumsi anggota dari modul Iuran'),
+      ('IURAN_UMROH_PENGURUS', 'Iuran Umroh Pengurus', 'income', 1, 'Iuran umroh Rp1.000.000 per pengurus per bulan mulai Oktober 2026')`
   );
   await pool.execute(
     `UPDATE cash_categories

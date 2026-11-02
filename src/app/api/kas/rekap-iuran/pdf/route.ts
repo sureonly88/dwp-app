@@ -12,13 +12,14 @@ const BULAN_ID = [
   "Juli", "Agustus", "September", "Oktober", "November", "Desember",
 ];
 
-type PrintScope = "all" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
+type PrintScope = "all" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus" | "iuran_umroh_pengurus";
 
 const PRINT_SCOPE_LABELS: Record<PrintScope, string> = {
   all: "Semua Kas Iuran",
   iuran_anggota: "Iuran Kas Anggota",
   iuran_konsumsi_anggota: "Iuran Kas Konsumsi",
   iuran_pengurus: "Iuran Kas Pengurus",
+  iuran_umroh_pengurus: "Iuran Umroh Pengurus",
 };
 
 function escHtml(value: string | number | null | undefined) {
@@ -57,7 +58,8 @@ function parsePrintScope(value: string | null): PrintScope {
   if (
     value === "iuran_anggota" ||
     value === "iuran_konsumsi_anggota" ||
-    value === "iuran_pengurus"
+    value === "iuran_pengurus" ||
+    value === "iuran_umroh_pengurus"
   ) {
     return value;
   }

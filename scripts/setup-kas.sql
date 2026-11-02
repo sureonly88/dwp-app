@@ -36,9 +36,9 @@ CREATE TABLE IF NOT EXISTS cash_transactions (
   reference_number    VARCHAR(80)  NULL,
   attachment_url      VARCHAR(500) NULL,
   status              ENUM('draft','pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending',
-  source_type         VARCHAR(40)  NULL,    -- 'iuran_anggota' | 'iuran_pengurus' | 'sale' | 'manual' | ...
+  source_type         VARCHAR(40)  NULL,    -- 'iuran_anggota' | 'iuran_pengurus' | 'iuran_umroh_pengurus' | 'sale' | 'manual' | ...
   source_id           VARCHAR(80)  NULL,    -- e.g. '2026-05' for iuran rekap, sale.id for sale
-  source_fund         VARCHAR(40)  NULL,    -- 'donasi' | 'penjualan_barang' | 'iuran_anggota' | 'iuran_konsumsi_anggota' | 'iuran_pengurus'
+  source_fund         VARCHAR(40)  NULL,    -- 'donasi' | 'penjualan_barang' | 'iuran_anggota' | 'iuran_konsumsi_anggota' | 'iuran_pengurus' | 'iuran_umroh_pengurus'
   notes              VARCHAR(500) NULL,
   created_by          INT UNSIGNED NULL,
   approved_by         INT UNSIGNED NULL,
@@ -94,6 +94,7 @@ INSERT IGNORE INTO cash_categories (code, name, type, is_system, description) VA
   ('IURAN_ANGGOTA',     'Iuran Arisan Anggota',   'income',  1, 'Posting rekap iuran arisan anggota dari modul Iuran'),
   ('IURAN_KONSUMSI_ANGGOTA', 'Iuran Konsumsi Anggota', 'income', 1, 'Posting rekap iuran konsumsi anggota dari modul Iuran'),
   ('IURAN_PENGURUS',    'Iuran Pengurus',         'income',  1, 'Posting rekap iuran pengurus dari modul Iuran'),
+  ('IURAN_UMROH_PENGURUS', 'Iuran Umroh Pengurus', 'income', 1, 'Iuran umroh Rp1.000.000 per pengurus per bulan mulai Oktober 2026'),
   ('PENJUALAN_BARANG',  'Penjualan Barang',       'income',  1, 'Otomatis dari modul Penjualan'),
   ('DONASI',            'Donasi',                 'income',  0, 'Sumbangan dari donatur'),
   ('PEMASUKAN_LAIN',    'Pemasukan Lain-lain',    'income',  0, 'Pemasukan tidak terkategori'),

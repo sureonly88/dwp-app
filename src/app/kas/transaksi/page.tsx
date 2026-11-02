@@ -6,7 +6,7 @@ import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { FetchErrorRow } from "@/components/ui/FetchError";
 
-type SourceFundCode = "donasi" | "penjualan_barang" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus";
+type SourceFundCode = "donasi" | "penjualan_barang" | "iuran_anggota" | "iuran_konsumsi_anggota" | "iuran_pengurus" | "iuran_umroh_pengurus";
 
 const SOURCE_FUND_OPTIONS: { code: SourceFundCode; label: string }[] = [
   { code: "donasi", label: "Donasi" },
@@ -14,6 +14,7 @@ const SOURCE_FUND_OPTIONS: { code: SourceFundCode; label: string }[] = [
   { code: "iuran_anggota", label: "Iuran Arisan Anggota" },
   { code: "iuran_konsumsi_anggota", label: "Iuran Konsumsi Anggota" },
   { code: "iuran_pengurus", label: "Iuran Pengurus" },
+  { code: "iuran_umroh_pengurus", label: "Iuran Umroh Pengurus" },
 ];
 
 const getSourceFundLabel = (code?: string | null) => {
