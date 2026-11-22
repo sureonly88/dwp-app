@@ -5,7 +5,7 @@ import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
-import { STATUS_KEANGGOTAAN_OPTIONS, type StatusKeanggotaan } from "@/lib/anggota-options";
+import type { StatusKeanggotaan } from "@/lib/anggota-options";
 
 interface Kegiatan {
   id: number;
@@ -62,6 +62,9 @@ interface TamuItem {
 }
 
 const PRESENSI_PAGE_SIZE = 5;
+const PRESENSI_GROUP_ORDER = ["Istri Karyawan", "Karyawati", "Pengurus", "tamu"] as const satisfies readonly (StatusKeanggotaan | "tamu")[];
+type PresensiSelectionKey = `anggota:${number}` | `tamu:${number}`;
+
 const INITIAL_ANGGOTA_PAGES: Record<StatusKeanggotaan, number> = {
   "Istri Karyawan": 1,
   Karyawati: 1,
@@ -87,32 +90,6 @@ function withCurrentUnitKerja(options: UnitKerjaOption[], current: string) {
   if (!unitKerja || options.some((option) => option.nama === unitKerja)) return options;
   return [{ id: -1, nama: unitKerja, aktif: 1 }, ...options];
 }
-function buildCompactPageItems(totalPages: number, currentPage: number) {
-  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
-
-  const pages = new Set<number>([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
-  if (currentPage <= 3) {
-    pages.add(2);
-    pages.add(3);
-    pages.add(4);
-  }
-  if (currentPage >= totalPages - 2) {
-    pages.add(totalPages - 1);
-    pages.add(totalPages - 2);
-    pages.add(totalPages - 3);
-  }
-
-  const sortedPages = [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
-  const compactItems: Array<number | "..."> = [];
-
-  sortedPages.forEach((page, index) => {
-    const previousPage = sortedPages[index - 1];
-    if (previousPage && page - previousPage > 1) compactItems.push("...");
-    compactItems.push(page);
-  });
-
-  return compactItems;
-}
 function statusVariant(s: Kegiatan["status"]) {
   switch (s) {
     case "Berlangsung": return "success" as const;
@@ -120,12 +97,6 @@ function statusVariant(s: Kegiatan["status"]) {
     case "Selesai": return "neutral" as const;
     case "Dibatalkan": return "error" as const;
   }
-}
-
-function statusKeanggotaanVariant(status: StatusKeanggotaan) {
-  if (status === "Karyawati") return "info" as const;
-  if (status === "Pengurus") return "success" as const;
-  return "warning" as const;
 }
 
 export default function KegiatanDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -140,7 +111,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   const [hadirkanLoading, setHadirkanLoading] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<{ src: string; nama: string } | null>(null);
   const [totalAnggota, setTotalAnggota] = useState<number | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedKeys, setSelectedKeys] = useState<Set<PresensiSelectionKey>>(new Set());
   const [anggotaPages, setAnggotaPages] = useState<Record<StatusKeanggotaan, number>>(INITIAL_ANGGOTA_PAGES);
   const [tamuPage, setTamuPage] = useState(1);
 
@@ -353,18 +324,6 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     }
   };
 
-  const handleHapusTamu = async (tamuId: number, nama: string) => {
-    if (!confirm(`Hapus tamu ${nama}?`)) return;
-    try {
-      const res = await fetch(`/api/kegiatan/${id}/presensi/tamu?tamu_id=${tamuId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
-      showToast(`Data tamu ${nama} dihapus`);
-      fetchTamu();
-    } catch {
-      showToast("Gagal menghapus data tamu", "error");
-    }
-  };
-
   const handleSelectManual = (a: AnggotaSuggest) => {
     setManualSelected(a);
     setManualQuery(a.nama);
@@ -403,16 +362,25 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     }
   };
 
-  const handleHapusPresensi = async (presensiId: number, nama: string) => {
-    if (!confirm(`Hapus presensi ${nama}?`)) return;
+  const hapusPresensi = async (key: PresensiSelectionKey) => {
+    const [jenis, rowId] = key.split(":");
+    const path = jenis === "tamu" ? `/tamu?tamu_id=${rowId}` : `?presensi_id=${rowId}`;
+    const res = await fetch(`/api/kegiatan/${id}/presensi${path}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Gagal menghapus presensi");
+  };
+
+  const handleHapusPresensi = async (key: PresensiSelectionKey, nama: string) => {
+    if (bulkDeleting || !confirm(`Hapus presensi ${nama}?`)) return;
+    setBulkDeleting(true);
     try {
-      const res = await fetch(`/api/kegiatan/${id}/presensi?presensi_id=${presensiId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
+      await hapusPresensi(key);
+      setSelectedKeys((prev) => new Set([...prev].filter((selectedKey) => selectedKey !== key)));
       showToast(`Presensi ${nama} dihapus`);
-      fetchPresensi();
-      fetchKegiatan();
+      await Promise.allSettled([key.startsWith("tamu:") ? fetchTamu() : fetchPresensi(), fetchKegiatan()]);
     } catch {
       showToast("Gagal menghapus presensi", "error");
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -435,14 +403,14 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
 
   const handleHapusSemua = async () => {
     if (presensi.length === 0) return;
-    if (!confirm(`Hapus SEMUA ${presensi.length} data presensi pada kegiatan ini? Tindakan ini tidak dapat dibatalkan.`)) return;
+    if (!confirm("Hapus semua presensi anggota dari seluruh status keanggotaan pada kegiatan ini? Tindakan ini tidak dapat dibatalkan.")) return;
     setBulkDeleting(true);
     try {
       const res = await fetch(`/api/kegiatan/${id}/presensi?all=1`, { method: "DELETE" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       showToast(json.message ?? "Daftar hadir dikosongkan");
-      setSelectedIds(new Set());
+      setSelectedKeys(new Set());
       fetchPresensi();
       fetchKegiatan();
     } catch {
@@ -453,42 +421,35 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   };
 
   const handleHapusTerpilih = async () => {
-    if (selectedIds.size === 0) return;
-    if (!confirm(`Hapus ${selectedIds.size} presensi terpilih?`)) return;
+    const keys = [...selectedKeys];
+    if (keys.length === 0 || bulkDeleting) return;
+    if (!confirm(`Hapus ${keys.length} presensi terpilih?`)) return;
     setBulkDeleting(true);
-    try {
-      await Promise.all(
-        [...selectedIds].map((pid) =>
-          fetch(`/api/kegiatan/${id}/presensi?presensi_id=${pid}`, { method: "DELETE" })
-        )
+    const results = await Promise.allSettled(keys.map(hapusPresensi));
+    const deletedKeys = new Set(keys.filter((_, index) => results[index].status === "fulfilled"));
+    const failedCount = keys.length - deletedKeys.size;
+    setSelectedKeys((prev) => new Set([...prev].filter((key) => !deletedKeys.has(key))));
+    if (failedCount > 0) {
+      showToast(
+        deletedKeys.size === 0
+          ? "Gagal menghapus presensi terpilih"
+          : `${deletedKeys.size} presensi dihapus. ${failedCount} gagal dihapus.`,
+        "error"
       );
-      showToast(`${selectedIds.size} presensi berhasil dihapus`);
-      setSelectedIds(new Set());
-      fetchPresensi();
-      fetchKegiatan();
-    } catch {
-      showToast("Gagal menghapus presensi terpilih", "error");
-    } finally {
-      setBulkDeleting(false);
+    } else {
+      showToast(`${deletedKeys.size} presensi berhasil dihapus`);
     }
+    await Promise.allSettled([fetchPresensi(), fetchTamu(), fetchKegiatan()]);
+    setBulkDeleting(false);
   };
 
-  const toggleSelect = (pid: number) =>
-    setSelectedIds((prev) => {
+  const toggleSelection = (keys: PresensiSelectionKey[]) => {
+    setSelectedKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(pid)) next.delete(pid); else next.add(pid);
-      return next;
-    });
-
-  const toggleSelectAll = () => {
-    const ids = visiblePresensiIds;
-    const everyChecked = ids.every((presensiId) => selectedIds.has(presensiId));
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (everyChecked) {
-        ids.forEach((presensiId) => next.delete(presensiId));
+      if (keys.every((key) => prev.has(key))) {
+        keys.forEach((key) => next.delete(key));
       } else {
-        ids.forEach((presensiId) => next.add(presensiId));
+        keys.forEach((key) => next.add(key));
       }
       return next;
     });
@@ -581,36 +542,27 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   const totalAktif = totalAnggota ?? 0;
   const persen = totalAktif > 0 ? Math.min(100, Math.round((kegiatan.hadir_count / totalAktif) * 100)) : 0;
   const presensiFiltered = presensi.filter((p) => matchesPresensiSearch(p, searchHadir));
-  const presensiGroups = STATUS_KEANGGOTAAN_OPTIONS.map((status) => {
-    const items = presensiFiltered.filter((item) => item.status_keanggotaan === status);
+  const presensiGroups = PRESENSI_GROUP_ORDER.map((status) => {
+    const isTamu = status === "tamu";
+    const items = isTamu ? tamu : presensiFiltered.filter((item) => item.status_keanggotaan === status);
     const totalPages = Math.max(1, Math.ceil(items.length / PRESENSI_PAGE_SIZE));
-    const currentPage = Math.min(anggotaPages[status] ?? 1, totalPages);
-    const pageNumbers = buildCompactPageItems(totalPages, currentPage);
+    const currentPage = Math.min(isTamu ? tamuPage : anggotaPages[status], totalPages);
     const startIndex = (currentPage - 1) * PRESENSI_PAGE_SIZE;
     const pageItems = items.slice(startIndex, startIndex + PRESENSI_PAGE_SIZE);
+    const jenis = isTamu ? "tamu" : "anggota";
 
     return {
       status,
+      jenis,
+      label: isTamu ? "Daftar Hadir Tamu" : status,
       sectionId: `presensi-${status.toLowerCase().replace(/\s+/g, "-")}`,
-      items,
-      totalPages,
+      count: items.length,
       currentPage,
-      pageNumbers,
       pageItems,
-      visibleStart: items.length === 0 ? 0 : startIndex + 1,
-      visibleEnd: items.length === 0 ? 0 : startIndex + pageItems.length,
+      pageKeys: pageItems.map((item) => `${jenis}:${item.id}` as const),
     };
   });
-  const visiblePresensiIds = presensiGroups.flatMap((group) => group.pageItems.map((item) => item.id));
-  const allChecked = visiblePresensiIds.length > 0 && visiblePresensiIds.every((id) => selectedIds.has(id));
-  const someChecked = visiblePresensiIds.some((id) => selectedIds.has(id));
-  const totalTamuPages = Math.max(1, Math.ceil(tamu.length / PRESENSI_PAGE_SIZE));
-  const currentTamuPage = Math.min(tamuPage, totalTamuPages);
-  const tamuPageNumbers = buildCompactPageItems(totalTamuPages, currentTamuPage);
-  const tamuStartIndex = (currentTamuPage - 1) * PRESENSI_PAGE_SIZE;
-  const tamuPageItems = tamu.slice(tamuStartIndex, tamuStartIndex + PRESENSI_PAGE_SIZE);
-  const tamuVisibleStart = tamu.length === 0 ? 0 : tamuStartIndex + 1;
-  const tamuVisibleEnd = tamu.length === 0 ? 0 : tamuStartIndex + tamuPageItems.length;
+  const visiblePresensiKeys = presensiGroups.flatMap((group) => group.pageKeys);
 
   return (
     <AppLayout>
@@ -644,68 +596,67 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* LEFT: QR + Info */}
-          <div className="lg:col-span-4 min-w-0 flex flex-col gap-6">
-            {/* QR Card */}
-            <Card className="p-6" id="qr">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-label-md text-label-md text-primary uppercase tracking-wider">QR Presensi</h3>
-                <span className="font-mono text-label-sm bg-primary-fixed text-on-primary-fixed-variant px-2 py-0.5 rounded">
-                  #{kegiatan.event_code}
-                </span>
+        <div className="grid items-start gap-5 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-6">
+          <Card className="min-w-0 p-5 sm:p-6" id="qr">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-label-md text-label-md text-primary uppercase tracking-wider">QR Presensi</h3>
+              <span className="font-mono text-label-sm bg-primary-fixed text-on-primary-fixed-variant px-2 py-0.5 rounded">
+                #{kegiatan.event_code}
+              </span>
+            </div>
+            <div className="bg-white border-2 border-primary rounded-xl p-4 flex items-center justify-center mb-4">
+              {/* QR served from API (SVG) */}
+              <img
+                src={`/api/kegiatan/${kegiatan.id}/qr`}
+                alt="QR Presensi"
+                className="w-full max-w-[260px] h-auto"
+              />
+            </div>
+            <p className="text-body-sm text-on-surface-variant text-center mb-4">
+              Anggota memindai QR ini lalu memasukkan NIP atau nama suami untuk mencatat kehadiran.
+            </p>
+            {origin && (
+              <div className="p-3 bg-surface-container-low border border-outline-variant rounded-lg mb-3 break-all">
+                <p className="text-[11px] text-on-surface-variant uppercase tracking-wider mb-1">Link Presensi</p>
+                <code className="text-body-sm text-primary">{origin}/presensi/{kegiatan.event_code}</code>
               </div>
-              <div className="bg-white border-2 border-primary rounded-xl p-4 flex items-center justify-center mb-4">
-                {/* QR served from API (SVG) */}
-                <img
-                  src={`/api/kegiatan/${kegiatan.id}/qr`}
-                  alt="QR Presensi"
-                  className="w-full max-w-[260px] h-auto"
-                />
-              </div>
-              <p className="text-body-sm text-on-surface-variant text-center mb-4">
-                Anggota memindai QR ini lalu memasukkan NIP atau nama suami untuk mencatat kehadiran.
-              </p>
-              {origin && (
-                <div className="p-3 bg-surface-container-low border border-outline-variant rounded-lg mb-3 break-all">
-                  <p className="text-[11px] text-on-surface-variant uppercase tracking-wider mb-1">Link Presensi</p>
-                  <code className="text-body-sm text-primary">{origin}/presensi/{kegiatan.event_code}</code>
-                </div>
-              )}
-              <div className="flex gap-2">
-                <button
-                  onClick={printQr}
-                  className="flex-1 py-2.5 bg-primary text-on-primary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-primary-container transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[18px]">print</span>
-                  Cetak QR
-                </button>
-                <a
-                  href={`/api/kegiatan/${kegiatan.id}/qr`}
-                  download={`qr-${kegiatan.event_code}.svg`}
-                  className="px-4 py-2.5 border border-outline-variant rounded-xl font-label-md text-on-surface-variant hover:bg-surface-container transition-colors flex items-center gap-2"
-                  title="Unduh SVG"
-                >
-                  <span className="material-symbols-outlined text-[18px]">download</span>
-                </a>
-                <Link
-                  href={`/presensi/${kegiatan.event_code}`}
-                  target="_blank"
-                  className="px-4 py-2.5 border border-outline-variant rounded-xl font-label-md text-on-surface-variant hover:bg-surface-container transition-colors flex items-center gap-2"
-                  title="Buka halaman presensi"
-                >
-                  <span className="material-symbols-outlined text-[18px]">open_in_new</span>
-                </Link>
-              </div>
-            </Card>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={printQr}
+                className="flex min-w-max flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-2 py-2.5 font-label-md text-on-primary transition-colors hover:bg-primary-container"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[18px]">print</span>
+                Cetak QR
+              </button>
+              <a
+                href={`/api/kegiatan/${kegiatan.id}/qr`}
+                download={`qr-${kegiatan.event_code}.svg`}
+                className="inline-flex size-11 items-center justify-center rounded-xl border border-outline-variant text-on-surface-variant transition-colors hover:bg-surface-container"
+                title="Unduh SVG"
+                aria-label="Unduh QR sebagai SVG"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[18px]">download</span>
+              </a>
+              <Link
+                href={`/presensi/${kegiatan.event_code}`}
+                target="_blank"
+                className="inline-flex size-11 items-center justify-center rounded-xl border border-outline-variant text-on-surface-variant transition-colors hover:bg-surface-container"
+                title="Buka halaman presensi"
+                aria-label="Buka halaman presensi"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[18px]">open_in_new</span>
+              </Link>
+            </div>
+          </Card>
 
-            {/* Event Info */}
-            <Card className="p-6">
-              <h3 className="font-label-md text-label-md text-on-surface-variant mb-4 flex items-center gap-2">
-                <span className="material-symbols-outlined text-secondary text-[20px]">info</span>
+          <div className="flex min-w-0 flex-col gap-5">
+            <Card className="min-w-0 p-5 sm:p-6">
+              <h3 className="mb-5 flex items-center gap-2 text-body-lg font-semibold text-on-surface">
+                <span aria-hidden="true" className="material-symbols-outlined size-5 shrink-0 overflow-hidden text-[20px] text-secondary">info</span>
                 Informasi Acara
               </h3>
-              <div className="space-y-3 text-body-sm">
+              <div className="grid gap-4 text-body-sm lg:grid-cols-2">
                 <InfoRow icon="calendar_today" label="Tanggal" value={formatTanggal(kegiatan.tanggal)} />
                 <InfoRow
                   icon="schedule"
@@ -715,14 +666,14 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                 <InfoRow icon="location_on" label="Lokasi" value={kegiatan.lokasi || "-"} />
                 <InfoRow icon="category" label="Kategori" value={kegiatan.kategori} />
               </div>
-              <div className="pt-4 mt-4 border-t border-outline-variant">
-                <div className="flex justify-between text-label-sm mb-2">
+              <div className="mt-6 border-t border-outline-variant pt-5">
+                <div className="mb-2 flex justify-between gap-2 text-body-sm">
                   <span className="text-on-surface-variant">Kehadiran Anggota</span>
                   <span className="font-bold text-on-surface">
-                      {kegiatan.hadir_count}{totalAktif > 0 ? ` / ${totalAktif}` : ""}
-                    </span>
-                  </div>
-                  {totalAktif > 0 && (
+                    {kegiatan.hadir_count}{totalAktif > 0 ? ` / ${totalAktif}` : ""}
+                  </span>
+                </div>
+                {totalAktif > 0 && (
                   <>
                     <div className="w-full bg-surface-container-high h-2.5 rounded-full overflow-hidden">
                       <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${persen}%` }} />
@@ -733,7 +684,7 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                 {(kegiatan.tamu_count > 0 || tamu.length > 0) && (
                   <div className="flex justify-between text-label-sm mt-3 pt-3 border-t border-outline-variant">
                     <span className="text-on-surface-variant flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-[14px] text-secondary">person_outline</span>
+                      <span aria-hidden="true" className="material-symbols-outlined size-4 shrink-0 overflow-hidden text-[14px] text-secondary">person_outline</span>
                       Tamu Non-Anggota
                     </span>
                     <span className="font-bold text-secondary">{tamu.length > 0 ? tamu.length : kegiatan.tamu_count} orang</span>
@@ -742,361 +693,222 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
               </div>
             </Card>
 
-            {/* Tambah Kehadiran */}
-            <Card className="p-6">
-              <h3 className="font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-2">
-                <span className="material-symbols-outlined text-secondary text-[20px]">person_add</span>
+            <Card className="min-w-0 p-5 sm:p-6">
+              <h3 className="mb-3 flex items-center gap-2 text-body-lg font-semibold text-on-surface">
+                <span aria-hidden="true" className="material-symbols-outlined size-5 shrink-0 overflow-hidden text-[20px] text-secondary">person_add</span>
                 Tambah Kehadiran
               </h3>
-              <p className="text-[11px] text-on-surface-variant mb-4">
-                Catat kehadiran anggota DWP atau tamu non-anggota secara manual.
-              </p>
               <button
                 onClick={() => { resetManualAnggota(); setAddModal(true); setAddTab("anggota"); }}
                 className="w-full py-2.5 bg-primary text-on-primary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-primary-container transition-colors"
               >
-                <span className="material-symbols-outlined text-[18px]">add</span>
+                <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[18px]">add</span>
                 Tambah Anggota / Tamu
               </button>
             </Card>
           </div>
-
-          {/* RIGHT: Attendance List */}
-          <div className="lg:col-span-8 min-w-0 flex flex-col gap-6">
-            <Card className="@container">
-              <div className="space-y-4 border-b border-outline-variant p-4 sm:p-5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-h3 text-h3 text-on-surface">Daftar Hadir Anggota</h3>
-                  {sseConnected ? (
-                    <span className="inline-flex items-center gap-1.5 text-label-sm text-tertiary">
-                      <span className="flex h-2 w-2 rounded-full bg-tertiary animate-pulse" />
-                      Live
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-label-sm text-on-surface-variant/60">
-                      <span className="flex h-2 w-2 rounded-full bg-outline-variant" />
-                      Menghubungkan...
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="relative w-full @md:flex-1">
-                    <span aria-hidden="true" className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 overflow-hidden text-on-surface-variant text-[18px]">search</span>
-                    <input
-                      type="search"
-                      aria-label="Cari anggota berdasarkan nama atau NIP"
-                      value={searchHadir}
-                      onChange={(e) => {
-                        setSearchHadir(e.target.value);
-                        setAnggotaPages(INITIAL_ANGGOTA_PAGES);
-                      }}
-                      placeholder="Cari nama / NIP..."
-                      className="min-h-10 w-full rounded-lg border border-outline-variant bg-surface py-2 pr-3 pl-9 text-body-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                  <label className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-outline-variant px-3 py-2 text-body-sm text-on-surface-variant has-disabled:opacity-50">
-                    <input
-                      type="checkbox"
-                      checked={allChecked}
-                      ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
-                      onChange={toggleSelectAll}
-                      disabled={visiblePresensiIds.length === 0}
-                      className="w-4 h-4 rounded border-outline-variant accent-primary cursor-pointer"
-                    />
-                    Pilih yang tampil
-                  </label>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={handleHadirkanSemua}
-                    disabled={hadirkanLoading || bulkDeleting}
-                    title="Catat semua anggota aktif sebagai hadir sekaligus"
-                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-tertiary/40 px-3 py-2 text-label-md text-tertiary hover:bg-tertiary-container/30 disabled:opacity-40"
-                  >
-                    {hadirkanLoading ? (
-                      <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
-                    ) : (
-                      <span className="material-symbols-outlined text-[18px]">group_add</span>
-                    )}
-                    Hadirkan Semua
-                  </button>
-                  <button
-                    onClick={exportCsv}
-                    disabled={presensi.length === 0}
-                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-outline-variant px-3 py-2 text-label-md text-on-surface-variant hover:bg-surface-container disabled:opacity-40"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">download</span>
-                    Ekspor CSV
-                  </button>
-                  {selectedIds.size > 0 ? (
-                    <button
-                      onClick={handleHapusTerpilih}
-                      disabled={bulkDeleting}
-                      className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-error/30 px-3 py-2 text-label-md text-error hover:bg-error-container disabled:opacity-40"
-                    >
-                      {bulkDeleting ? (
-                        <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
-                      ) : (
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      )}
-                      Hapus {selectedIds.size} Terpilih
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleHapusSemua}
-                      disabled={presensi.length === 0 || bulkDeleting}
-                      title="Hapus seluruh daftar hadir"
-                      className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-error/30 px-3 py-2 text-label-md text-error hover:bg-error-container disabled:opacity-40"
-                    >
-                      {bulkDeleting ? (
-                        <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
-                      ) : (
-                        <span className="material-symbols-outlined text-[18px]">delete_sweep</span>
-                      )}
-                      Hapus Semua
-                    </button>
-                  )}
-                </div>
-              </div>
-              {presensiFiltered.length === 0 ? (
-                <p className="px-4 py-10 text-center text-body-sm text-on-surface-variant">
-                  {searchHadir.trim() ? "Tidak ada anggota yang cocok dengan pencarian." : "Belum ada anggota yang tercatat hadir."}
-                </p>
-              ) : (
-                <>
-                  <nav aria-label="Lompat ke status keanggotaan" className="flex flex-wrap gap-2 px-4 pt-4 sm:px-5">
-                    {presensiGroups.map((group) => (
-                      <a
-                        key={group.status}
-                        href={`#${group.sectionId}`}
-                        className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-outline-variant px-3 text-body-sm text-on-surface-variant transition-colors hover:border-primary hover:bg-primary-fixed/20 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
-                      >
-                        {group.status}
-                        <span className="rounded-md bg-surface-container px-1.5 py-0.5 text-label-sm font-semibold tabular-nums">
-                          {group.items.length}
-                        </span>
-                      </a>
-                    ))}
-                  </nav>
-                  <div className="space-y-4 p-4 sm:p-5">
-                    {presensiGroups.map((group) => (
-                      <section key={group.status} id={group.sectionId} aria-labelledby={`${group.sectionId}-title`} className="scroll-mt-20 overflow-hidden rounded-xl border border-outline-variant">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-outline-variant bg-surface-container-low px-3 py-3 sm:px-4">
-                          <h4 id={`${group.sectionId}-title`} className="text-body-md font-semibold text-on-surface">{group.status}</h4>
-                          <Badge label={`${group.items.length} anggota`} variant={statusKeanggotaanVariant(group.status)} />
-                        </div>
-
-                        {group.items.length === 0 ? (
-                          <p className="px-3 py-4 text-body-sm text-on-surface-variant sm:px-4">
-                            {searchHadir.trim() ? "Tidak ada hasil di kelompok ini." : "Belum ada anggota hadir."}
-                          </p>
-                        ) : (
-                          <ul className="divide-y divide-outline-variant">
-                            {group.pageItems.map((p) => (
-                              <li
-                                key={p.id}
-                                className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2.5 gap-y-1.5 px-3 py-3 transition-colors duration-700 sm:gap-x-3 sm:px-4 @xl:grid-cols-[auto_minmax(0,1.2fr)_minmax(0,1fr)_auto_auto] @xl:items-center ${selectedIds.has(p.id) ? "bg-primary-fixed/30" : highlightedIds.has(p.id) ? "bg-tertiary-container/40" : "hover:bg-surface-container-low/50"}`}
-                              >
-                                <div className="col-start-1 row-start-1 flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    aria-label={`Pilih ${p.nama}`}
-                                    checked={selectedIds.has(p.id)}
-                                    onChange={() => toggleSelect(p.id)}
-                                    className="size-4 shrink-0 cursor-pointer rounded border-outline-variant accent-primary"
-                                  />
-                                  {p.foto ? (
-                                    <button
-                                      onClick={() => setPhotoPreview({ src: p.foto!, nama: p.nama })}
-                                      aria-label={`Lihat selfie ${p.nama}`}
-                                      className="size-9 shrink-0 overflow-hidden rounded-lg border border-outline-variant transition-colors hover:border-primary sm:size-10"
-                                    >
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img src={p.foto} alt="" className="size-full object-cover" />
-                                    </button>
-                                  ) : (
-                                    <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-container text-on-surface-variant sm:size-10">
-                                      <span className="material-symbols-outlined size-5 overflow-hidden text-[20px]">person</span>
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="col-start-2 row-start-1 min-w-0 self-center">
-                                  <p className="wrap-anywhere text-body-md leading-snug font-semibold text-on-surface">{p.nama}</p>
-                                  {p.nip && <p className="wrap-anywhere text-sm text-on-surface-variant">{p.nip}</p>}
-                                </div>
-                                <div className="col-span-2 col-start-2 row-start-2 min-w-0 wrap-anywhere text-body-sm text-on-surface-variant @xl:col-span-1 @xl:col-start-3 @xl:row-start-1">
-                                  {p.unit_kerja && <p>{p.unit_kerja}</p>}
-                                  {p.jabatan && <p className="text-sm">{p.jabatan}</p>}
-                                </div>
-                                <div className="col-span-2 col-start-2 row-start-3 flex flex-wrap items-center gap-2 @xl:col-span-1 @xl:col-start-4 @xl:row-start-1 @xl:flex-col @xl:items-end @xl:gap-1">
-                                  <time dateTime={p.waktu_hadir.replace(" ", "T")} className="text-body-sm text-on-surface-variant tabular-nums">{formatWaktuHadir(p.waktu_hadir)}</time>
-                                  <Badge label={p.metode} variant={p.metode === "QR" ? "info" : "warning"} />
-                                </div>
-                                <button
-                                  onClick={() => handleHapusPresensi(p.id, p.nama)}
-                                  aria-label={`Hapus presensi ${p.nama}`}
-                                  className="col-start-3 row-start-1 inline-flex size-9 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-error-container hover:text-error @xl:col-start-5"
-                                >
-                                  <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[20px]">delete</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-
-                        {group.totalPages > 1 && (
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-outline-variant bg-surface-container-low px-3 py-2.5 sm:px-4">
-                            <p className="text-sm text-on-surface-variant">
-                              {group.visibleStart}–{group.visibleEnd} dari {group.items.length} anggota
-                            </p>
-                            <nav aria-label={`Halaman ${group.status}`} className="flex flex-wrap items-center gap-1">
-                              <button
-                                onClick={() => setAnggotaPages((prev) => ({ ...prev, [group.status]: group.currentPage - 1 }))}
-                                disabled={group.currentPage === 1}
-                                aria-label={`Halaman sebelumnya untuk ${group.status}`}
-                                className="min-h-9 rounded-lg border border-outline-variant px-2 text-sm text-on-surface-variant hover:bg-surface-container disabled:opacity-40"
-                              >
-                                Sebelumnya
-                              </button>
-                              {group.pageNumbers.map((pageNumber, index) => {
-                                if (pageNumber === "...") {
-                                  return <span key={`ellipsis-${index}`} className="px-1 text-sm text-on-surface-variant">…</span>;
-                                }
-
-                                return (
-                                  <button
-                                    key={pageNumber}
-                                    onClick={() => setAnggotaPages((prev) => ({ ...prev, [group.status]: pageNumber }))}
-                                    aria-label={`Halaman ${pageNumber} untuk ${group.status}`}
-                                    aria-current={pageNumber === group.currentPage ? "page" : undefined}
-                                    className={`size-9 rounded-lg text-sm font-medium transition-colors ${pageNumber === group.currentPage
-                                      ? "bg-primary text-on-primary"
-                                      : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
-                                    }`}
-                                  >
-                                    {pageNumber}
-                                  </button>
-                                );
-                              })}
-                              <button
-                                onClick={() => setAnggotaPages((prev) => ({ ...prev, [group.status]: group.currentPage + 1 }))}
-                                disabled={group.currentPage === group.totalPages}
-                                aria-label={`Halaman berikutnya untuk ${group.status}`}
-                                className="min-h-9 rounded-lg border border-outline-variant px-2 text-sm text-on-surface-variant hover:bg-surface-container disabled:opacity-40"
-                              >
-                                Berikutnya
-                              </button>
-                            </nav>
-                          </div>
-                        )}
-                      </section>
-                    ))}
-                  </div>
-                </>
-              )}
-            </Card>
-
-            <Card className="overflow-hidden">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-outline-variant p-4 sm:px-5">
-                <h3 className="font-h3 text-h3 text-on-surface">Daftar Hadir Tamu</h3>
-                <Badge label={`${tamu.length} tamu`} variant="neutral" />
-              </div>
-
-              <div className="divide-y divide-outline-variant">
-                {tamu.length === 0 ? (
-                  <div className="px-4 py-10 text-center text-on-surface-variant text-body-sm">
-                    <span className="material-symbols-outlined text-[40px] block mb-2 opacity-30">person_outline</span>
-                    Belum ada tamu yang dicatat.
-                  </div>
-                ) : (
-                  tamuPageItems.map((t, i) => (
-                    <div key={t.id} className="p-4 flex gap-3 hover:bg-surface-container-low/50 transition-colors">
-                      <div className="shrink-0 text-body-sm text-on-surface-variant w-6">{tamuStartIndex + i + 1}</div>
-                      <div className="shrink-0">
-                        {t.foto ? (
-                          <button
-                            onClick={() => setPhotoPreview({ src: t.foto!, nama: t.nama })}
-                            title="Lihat foto selfie"
-                            className="block w-11 h-11 rounded-lg overflow-hidden border border-outline-variant hover:border-secondary transition-colors"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={t.foto} alt={`Selfie ${t.nama}`} className="w-full h-full object-cover" />
-                          </button>
-                        ) : (
-                          <div className="w-11 h-11 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface-variant">
-                            <span className="material-symbols-outlined text-[16px]">image_not_supported</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="font-label-md text-label-md text-on-surface leading-tight truncate">{t.nama}</p>
-                            <p className="text-[11px] text-on-surface-variant truncate">{t.instansi ?? "Instansi tidak diisi"}</p>
-                          </div>
-                          <button
-                            onClick={() => handleHapusTamu(t.id, t.nama)}
-                            title="Hapus tamu"
-                            className="p-1 rounded-lg text-on-surface-variant hover:bg-error-container hover:text-error transition-colors shrink-0"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                          </button>
-                        </div>
-                        <p className="mt-2 text-[11px] text-on-surface-variant">{formatWaktuHadir(t.waktu_hadir)}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {tamu.length > 0 && (
-                <div className="p-4 border-t border-outline-variant bg-surface-container-low flex flex-col gap-3">
-                  <p className="text-[11px] text-on-surface-variant">
-                    Menampilkan {tamuVisibleStart}-{tamuVisibleEnd} dari {tamu.length} tamu
-                  </p>
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      onClick={() => setTamuPage((prev) => Math.max(1, prev - 1))}
-                      disabled={currentTamuPage === 1}
-                      className="px-2.5 py-1.5 border border-outline-variant rounded-lg text-label-sm text-on-surface-variant hover:bg-surface disabled:opacity-40"
-                    >
-                      Sebelumnya
-                    </button>
-                    <div className="flex flex-wrap items-center justify-center gap-1.5">
-                      {tamuPageNumbers.map((pageNumber, index) => {
-                        if (pageNumber === "...") {
-                          return <span key={`ellipsis-tamu-${index}`} className="px-1 text-label-sm text-on-surface-variant">...</span>;
-                        }
-
-                        const isActive = pageNumber === currentTamuPage;
-                        return (
-                          <button
-                            key={`tamu-${pageNumber}`}
-                            onClick={() => setTamuPage(pageNumber)}
-                            className={`min-w-8 px-2 py-1.5 rounded-md text-label-sm transition-colors ${
-                              isActive
-                                ? "bg-primary text-on-primary"
-                                : "border border-outline-variant text-on-surface-variant hover:bg-surface"
-                            }`}
-                          >
-                            {pageNumber}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button
-                      onClick={() => setTamuPage((prev) => Math.min(totalTamuPages, prev + 1))}
-                      disabled={currentTamuPage === totalTamuPages}
-                      className="px-2.5 py-1.5 border border-outline-variant rounded-lg text-label-sm text-on-surface-variant hover:bg-surface disabled:opacity-40"
-                    >
-                      Berikutnya
-                    </button>
-                  </div>
-                </div>
-              )}
-            </Card>
-          </div>
         </div>
+
+        <Card id="daftar-hadir" className="@container min-w-0 overflow-hidden">
+          <div className="p-4 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-h3 text-h3 text-on-surface">Daftar Hadir Anggota</h3>
+              {sseConnected ? (
+                <span className="inline-flex items-center gap-1.5 text-label-sm text-tertiary">
+                  <span className="flex h-2 w-2 rounded-full bg-tertiary animate-pulse" />
+                  Live
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-label-sm text-on-surface-variant/60">
+                  <span className="flex h-2 w-2 rounded-full bg-outline-variant" />
+                  Menghubungkan...
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="space-y-3 border-t border-outline-variant px-4 py-3 sm:px-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full @md:flex-1">
+                <span aria-hidden="true" className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 overflow-hidden text-on-surface-variant text-[18px]">search</span>
+                <input
+                  type="search"
+                  aria-label="Cari anggota berdasarkan nama atau NIP"
+                  value={searchHadir}
+                  onChange={(e) => {
+                    setSearchHadir(e.target.value);
+                    setAnggotaPages(INITIAL_ANGGOTA_PAGES);
+                  }}
+                  placeholder="Cari nama / NIP..."
+                  className="min-h-10 w-full rounded-lg border border-outline-variant bg-surface py-2 pr-3 pl-9 text-body-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <label className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-outline-variant px-3 py-2 text-body-sm text-on-surface-variant has-disabled:opacity-50">
+                <PresensiCheckbox
+                  label="Pilih yang tampil"
+                  keys={visiblePresensiKeys}
+                  selected={selectedKeys}
+                  disabled={bulkDeleting}
+                  onToggle={toggleSelection}
+                />
+                Pilih yang tampil
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleHadirkanSemua}
+                disabled={hadirkanLoading || bulkDeleting}
+                title="Catat semua anggota aktif sebagai hadir sekaligus"
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-tertiary/40 px-3 py-2 text-label-md text-tertiary hover:bg-tertiary-container/30 disabled:opacity-40"
+              >
+                {hadirkanLoading ? (
+                  <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                ) : (
+                  <span className="material-symbols-outlined text-[18px]">group_add</span>
+                )}
+                Hadirkan Semua Anggota
+              </button>
+              <button
+                onClick={exportCsv}
+                disabled={presensi.length === 0}
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-outline-variant px-3 py-2 text-label-md text-on-surface-variant hover:bg-surface-container disabled:opacity-40"
+              >
+                <span className="material-symbols-outlined text-[18px]">download</span>
+                Ekspor CSV Anggota
+              </button>
+              {selectedKeys.size > 0 ? (
+                <button
+                  onClick={handleHapusTerpilih}
+                  disabled={bulkDeleting}
+                  className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-error/30 px-3 py-2 text-label-md text-error hover:bg-error-container disabled:opacity-40"
+                >
+                  {bulkDeleting ? (
+                    <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                  ) : (
+                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                  )}
+                  Hapus {selectedKeys.size} Terpilih
+                </button>
+              ) : (
+                <button
+                  onClick={handleHapusSemua}
+                  disabled={presensi.length === 0 || bulkDeleting}
+                  title="Hapus daftar hadir anggota dari semua status keanggotaan"
+                  className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-error/30 px-3 py-2 text-label-md text-error hover:bg-error-container disabled:opacity-40"
+                >
+                  {bulkDeleting ? (
+                    <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                  ) : (
+                    <span className="material-symbols-outlined text-[18px]">delete_sweep</span>
+                  )}
+                  Hapus Semua Presensi Anggota
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 border-t border-outline-variant p-3 sm:p-4 @lg:grid-cols-2 @4xl:grid-cols-4">
+            {presensiGroups.map((group) => (
+              <section key={group.status} id={group.sectionId} aria-labelledby={`${group.sectionId}-title`} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-outline-variant">
+                <div className="flex min-h-18 shrink-0 items-start gap-2.5 border-b border-outline-variant bg-surface-container-low px-3 py-3">
+                  <div className="flex h-5 items-center">
+                    <PresensiCheckbox
+                      label={`Pilih yang tampil di ${group.label}`}
+                      keys={group.pageKeys}
+                      selected={selectedKeys}
+                      disabled={bulkDeleting}
+                      onToggle={toggleSelection}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 id={`${group.sectionId}-title`} className="wrap-anywhere text-body-md leading-tight font-semibold text-on-surface">{group.label}</h4>
+                    <p className="mt-1 text-sm text-on-surface-variant tabular-nums">{group.count} {group.jenis}</p>
+                  </div>
+                </div>
+                {group.count === 0 ? (
+                  <p className="px-3 py-4 text-body-sm text-on-surface-variant">
+                    {group.jenis === "tamu"
+                      ? "Belum ada tamu yang dicatat."
+                      : searchHadir.trim() ? "Tidak ada anggota yang cocok dengan pencarian." : "Belum ada anggota yang tercatat hadir."}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-outline-variant">
+                    {group.pageItems.map((p, index) => {
+                      const key = group.pageKeys[index];
+                      const isAnggota = "anggota_id" in p;
+
+                      return (
+                        <li
+                          key={key}
+                          className={`grid grid-cols-[1.75rem_minmax(0,1fr)_2rem] items-start gap-x-2 gap-y-1 px-2.5 py-3 transition-colors duration-700 ${selectedKeys.has(key)
+                            ? "bg-primary-fixed/30"
+                            : isAnggota && highlightedIds.has(p.id) ? "bg-tertiary-container/40" : "hover:bg-surface-container-low/50"
+                          }`}
+                        >
+                          <div className="col-start-1 row-span-2 row-start-1 flex flex-col items-center gap-1">
+                            <div className="flex h-8 items-center">
+                              <PresensiCheckbox
+                                label={`Pilih ${p.nama}`}
+                                keys={[key]}
+                                selected={selectedKeys}
+                                disabled={bulkDeleting}
+                                onToggle={toggleSelection}
+                              />
+                            </div>
+                            {p.foto ? (
+                              <button
+                                onClick={() => setPhotoPreview({ src: p.foto!, nama: p.nama })}
+                                aria-label={`Lihat selfie ${p.nama}`}
+                                className="size-7 shrink-0 overflow-hidden rounded-md border border-outline-variant transition-colors hover:border-primary"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={p.foto} alt="" className="size-full object-cover" />
+                              </button>
+                            ) : (
+                              <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-container text-on-surface-variant">
+                                <span className="material-symbols-outlined size-5 overflow-hidden text-[20px]">person</span>
+                              </span>
+                            )}
+                          </div>
+                          <p className="col-start-2 row-start-1 min-w-0 self-center wrap-anywhere text-body-md leading-snug font-semibold text-on-surface">{p.nama}</p>
+                          <div className="col-span-2 col-start-2 row-start-2 min-w-0 wrap-anywhere text-body-sm text-on-surface-variant">
+                            {isAnggota && p.nip && <p className="text-sm tabular-nums">{p.nip}</p>}
+                            <p>{isAnggota ? p.unit_kerja : p.instansi ?? "Instansi tidak diisi"}</p>
+                            {isAnggota && p.jabatan && <p className="text-sm">{p.jabatan}</p>}
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <time dateTime={p.waktu_hadir.replace(" ", "T")} className="text-sm tabular-nums">{formatWaktuHadir(p.waktu_hadir)}</time>
+                              {isAnggota && <Badge label={p.metode} variant={p.metode === "QR" ? "info" : "warning"} />}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleHapusPresensi(key, p.nama)}
+                            disabled={bulkDeleting}
+                            aria-label={`Hapus ${isAnggota ? "presensi" : "tamu"} ${p.nama}`}
+                            className="col-start-3 row-start-1 inline-flex size-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-error-container hover:text-error disabled:opacity-40"
+                          >
+                            <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[20px]">delete</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <PresensiPagination
+                  label={group.label}
+                  itemLabel={group.jenis}
+                  totalItems={group.count}
+                  currentPage={group.currentPage}
+                  onPageChange={(page) => {
+                    if (group.status === "tamu") {
+                      setTamuPage(page);
+                    } else {
+                      setAnggotaPages((prev) => ({ ...prev, [group.status]: page }));
+                    }
+                  }}
+                />
+              </section>
+            ))}
+          </div>
+        </Card>
       </div>
 
       {addModal && (
@@ -1297,13 +1109,90 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   );
 }
 
+function PresensiCheckbox({ label, keys, selected, disabled, onToggle }: {
+  label: string;
+  keys: PresensiSelectionKey[];
+  selected: ReadonlySet<PresensiSelectionKey>;
+  disabled: boolean;
+  onToggle: (keys: PresensiSelectionKey[]) => void;
+}) {
+  const checked = keys.length > 0 && keys.every((key) => selected.has(key));
+  const indeterminate = !checked && keys.some((key) => selected.has(key));
+
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      checked={checked}
+      ref={(input) => { if (input) input.indeterminate = indeterminate; }}
+      disabled={disabled || keys.length === 0}
+      onChange={() => onToggle(keys)}
+      className="size-4 shrink-0 cursor-pointer rounded border-outline-variant accent-primary disabled:cursor-default disabled:opacity-50"
+    />
+  );
+}
+
+function PresensiPagination({ label, itemLabel, totalItems, currentPage, onPageChange }: {
+  label: string;
+  itemLabel: string;
+  totalItems: number;
+  currentPage: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.ceil(totalItems / PRESENSI_PAGE_SIZE);
+  if (totalPages < 2) return null;
+
+  const firstItem = (currentPage - 1) * PRESENSI_PAGE_SIZE + 1;
+  const lastItem = Math.min(currentPage * PRESENSI_PAGE_SIZE, totalItems);
+  const buttonClass = "min-h-9 min-w-0 rounded-md border border-outline-variant bg-surface-container-lowest px-1 text-sm text-on-surface-variant hover:bg-surface-container disabled:opacity-40";
+
+  return (
+    <nav aria-label={`Halaman ${label}`} className="mt-auto space-y-2 border-t border-outline-variant bg-surface-container-low px-2.5 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <p className="text-sm text-on-surface-variant tabular-nums">{firstItem}–{lastItem} dari {totalItems} {itemLabel}</p>
+        <div className="relative min-w-0">
+          <select
+            aria-label={`Pilih halaman untuk ${label}`}
+            value={currentPage}
+            onChange={(event) => onPageChange(Number(event.target.value))}
+            className="min-h-8 appearance-none rounded-md border border-outline-variant bg-surface-container-lowest py-1 pr-7 pl-2 text-sm text-on-surface"
+          >
+            {Array.from({ length: totalPages }, (_, index) => (
+              <option key={index + 1} value={index + 1}>Hal. {index + 1}</option>
+            ))}
+          </select>
+          <span aria-hidden="true" className="material-symbols-outlined pointer-events-none absolute right-1.5 top-1/2 size-4 -translate-y-1/2 overflow-hidden text-[16px] text-on-surface-variant">expand_more</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          aria-label={`Halaman sebelumnya untuk ${label}`}
+          className={buttonClass}
+        >
+          Sebelumnya
+        </button>
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          aria-label={`Halaman berikutnya untuk ${label}`}
+          className={buttonClass}
+        >
+          Berikutnya
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 function InfoRow({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="material-symbols-outlined text-on-surface-variant text-[18px] mt-0.5">{icon}</span>
-      <div>
-        <p className="text-[11px] text-on-surface-variant uppercase tracking-wider">{label}</p>
-        <p className="text-on-surface">{value}</p>
+      <span aria-hidden="true" className="material-symbols-outlined mt-0.5 size-5 shrink-0 overflow-hidden text-[18px] text-on-surface-variant">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-sm text-on-surface-variant">{label}</p>
+        <p className="wrap-anywhere font-medium text-on-surface">{value}</p>
       </div>
     </div>
   );
