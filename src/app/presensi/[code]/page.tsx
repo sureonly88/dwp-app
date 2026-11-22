@@ -357,8 +357,8 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
     setResult(null);
     try {
       if (presType === "tamu") {
-        if (!tamuNama.trim() || !kegiatan) return;
-        const res = await fetch(`/api/kegiatan/${kegiatan.id}/presensi/tamu`, {
+        if (!tamuNama.trim()) return;
+        const res = await fetch(`/api/presensi/${code}/tamu`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ nama: tamuNama.trim(), instansi: tamuInstansi.trim() || undefined, foto: photoData }),
