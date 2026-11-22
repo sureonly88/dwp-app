@@ -4,17 +4,17 @@ import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
 import { requireAdmin } from "@/lib/admin-auth";
 import { ensureAnggotaSchema } from "@/lib/anggota";
-import { ensureGameSetupSchema } from "@/lib/game";
+import { ensureGameSetupSchema, GAME_ELIGIBLE_MEMBERS_SQL } from "@/lib/game";
 
 interface GameCandidateRow extends RowDataPacket {
-  peserta_tipe: "anggota" | "tamu";
-  anggota_id: number | null;
-  tamu_id: number | null;
+  peserta_tipe: "anggota";
+  anggota_id: number;
+  tamu_id: null;
   nama: string;
   nip: string | null;
   jabatan: string | null;
   unit_kerja: string | null;
-  instansi: string | null;
+  instansi: null;
   foto: string | null;
 }
 
@@ -84,51 +84,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
               a.nip,
               a.jabatan,
               a.unit_kerja,
-               NULL AS instansi,
-               CASE
-                 WHEN pr.foto IS NOT NULL AND TRIM(pr.foto) <> '' THEN pr.foto
-                 ELSE NULL
-               END AS foto
-       FROM anggota a
-       INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-       WHERE a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
-         AND a.id NOT IN (
-           SELECT anggota_id
-           FROM game_winners
-           WHERE kegiatan_id = ?
-             AND game_setup_id = ?
-             AND anggota_id IS NOT NULL
-         )
-
-       UNION ALL
-
-       SELECT 'tamu' AS peserta_tipe,
-              NULL AS anggota_id,
-              pt.id AS tamu_id,
-              pt.nama,
-              NULL AS nip,
-              'Tamu' AS jabatan,
-              COALESCE(NULLIF(TRIM(pt.instansi), ''), 'Tamu Non-Anggota') AS unit_kerja,
-               pt.instansi,
-               CASE
-                 WHEN pt.foto IS NOT NULL AND TRIM(pt.foto) <> '' THEN pt.foto
-                 ELSE NULL
-               END AS foto
-       FROM presensi_tamu pt
-       WHERE pt.kegiatan_id = ?
-         AND pt.id NOT IN (
-           SELECT tamu_id
-           FROM game_winners
-           WHERE kegiatan_id = ?
-             AND game_setup_id = ?
-             AND tamu_id IS NOT NULL
-         )`,
-      [kegiatan_id, kegiatan_id, gameSetupId, kegiatan_id, kegiatan_id, gameSetupId]
+              NULL AS instansi,
+              CASE
+                WHEN pr.foto IS NOT NULL AND TRIM(pr.foto) <> '' THEN pr.foto
+                ELSE NULL
+              END AS foto
+       ${GAME_ELIGIBLE_MEMBERS_SQL}`,
+      [kegiatan_id, kegiatan_id, gameSetupId]
     );
 
     if (candidateRows.length === 0) {
       await conn.rollback();
-      return NextResponse.json({ error: "Pengundian sudah habis. Tidak ada peserta hadir yang belum menjadi peserta terpilih." }, { status: 400 });
+      return NextResponse.json({ error: "Tidak ada anggota hadir yang memenuhi syarat dan masih bisa diundi." }, { status: 400 });
     }
 
     const remainingSlots = jumlahHadiah - currentCount;

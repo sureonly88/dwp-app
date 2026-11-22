@@ -533,9 +533,7 @@ export default function GamePage() {
       return;
     }
     if (eligibleCount === 0) {
-      setUndiError(hadirCount === 0
-        ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
-        : "Semua peserta yang hadir sudah menjadi peserta terpilih di kegiatan ini.");
+      setUndiError(noEligibleMessage);
       return;
     }
     if (undiError) return;
@@ -749,6 +747,9 @@ export default function GamePage() {
   const selectedWinnerCount = selectedWinnerIds.size;
   const allWinnersSelected = winners.length > 0 && selectedWinnerCount === winners.length;
   const winnersPerDraw = setup?.jumlah_per_undi ?? 10;
+  const noEligibleMessage = hadirCount === 0
+    ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
+    : "Tidak ada anggota hadir yang memenuhi syarat dan masih bisa diundi.";
   const canStart = spinState === "idle" && !!setup && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
   const highlightedWinnerIds = new Set(lastWinners.map((winner) => winner.id));
 
@@ -927,14 +928,12 @@ export default function GamePage() {
                 <span className="material-symbols-outlined text-[22px] mt-0.5 shrink-0">group_off</span>
                 <div>
                   <p className="font-bold text-[14px]">
-                    {hadirCount === 0 ? "Tidak ada peserta yang hadir" : "Pengundian sudah habis"}
+                    {isSlotFull ? "Pengundian sudah habis" : "Pengundian belum bisa dimulai"}
                   </p>
                   <p className="text-[12px] mt-0.5 opacity-80">
                     {isSlotFull
                       ? "Semua kuota peserta terpilih sudah terpenuhi."
-                      : hadirCount === 0
-                      ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
-                      : undiError ?? "Semua peserta yang hadir sudah menjadi peserta terpilih di kegiatan ini."}
+                      : undiError ?? noEligibleMessage}
                   </p>
                 </div>
               </div>

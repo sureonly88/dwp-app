@@ -4,6 +4,24 @@ import { ensureAnggotaSchema } from "@/lib/anggota";
 
 export type GamePesertaTipe = "anggota" | "tamu";
 
+const GAME_PRESENT_MEMBERS_SQL = `
+  FROM anggota a
+  INNER JOIN presensi pr ON pr.anggota_id = a.id
+  WHERE pr.kegiatan_id = ?
+    AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
+`;
+
+export const GAME_ELIGIBLE_MEMBERS_SQL = `
+  ${GAME_PRESENT_MEMBERS_SQL}
+    AND a.id NOT IN (
+      SELECT anggota_id
+      FROM game_winners
+      WHERE kegiatan_id = ?
+        AND game_setup_id = ?
+        AND anggota_id IS NOT NULL
+    )
+`;
+
 let ensureGameSetupSchemaPromise: Promise<void> | null = null;
 
 interface GameCandidateRow extends RowDataPacket {
@@ -215,37 +233,16 @@ async function ensureForeignKey(
 export async function listHadirAnggotaGameNames(kegiatanId: number | string): Promise<string[]> {
   await ensureAnggotaSchema();
 
-  // Ambil nama anggota yang hadir
-  const [anggotaRows] = await pool.execute<RowDataPacket[]>(
-    `SELECT DISTINCT a.nama
-     FROM anggota a
-     INNER JOIN presensi pr ON pr.anggota_id = a.id
-     WHERE pr.kegiatan_id = ?
-       AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT DISTINCT a.nama ${GAME_PRESENT_MEMBERS_SQL}
        AND COALESCE(NULLIF(TRIM(a.nama), ''), '') <> ''
      ORDER BY a.nama ASC`,
     [kegiatanId]
   );
 
-  // Ambil nama tamu yang hadir — tamu juga masuk animasi roll game
-  const [tamuRows] = await pool.execute<RowDataPacket[]>(
-    `SELECT DISTINCT pt.nama
-     FROM presensi_tamu pt
-     WHERE pt.kegiatan_id = ?
-       AND COALESCE(NULLIF(TRIM(pt.nama), ''), '') <> ''
-     ORDER BY pt.nama ASC`,
-    [kegiatanId]
-  );
-
-  const anggotaNames = anggotaRows
+  return rows
     .map((row) => String(row.nama ?? "").trim())
     .filter(Boolean);
-
-  const tamuNames = tamuRows
-    .map((row) => String(row.nama ?? "").trim())
-    .filter(Boolean);
-
-  return [...anggotaNames, ...tamuNames];
 }
 
 export async function listEligibleGameCandidates(
@@ -263,37 +260,8 @@ export async function listEligibleGameCandidates(
             a.jabatan,
             a.unit_kerja,
             NULL AS instansi
-     FROM anggota a
-     INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-     WHERE a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
-       AND a.id NOT IN (
-         SELECT anggota_id
-         FROM game_winners
-         WHERE kegiatan_id = ?
-           AND game_setup_id = ?
-           AND anggota_id IS NOT NULL
-       )
-
-     UNION ALL
-
-     SELECT 'tamu' AS peserta_tipe,
-            NULL AS anggota_id,
-            pt.id AS tamu_id,
-            pt.nama,
-            NULL AS nip,
-            'Tamu' AS jabatan,
-            COALESCE(NULLIF(TRIM(pt.instansi), ''), 'Tamu Non-Anggota') AS unit_kerja,
-            pt.instansi
-     FROM presensi_tamu pt
-     WHERE pt.kegiatan_id = ?
-       AND pt.id NOT IN (
-         SELECT tamu_id
-         FROM game_winners
-         WHERE kegiatan_id = ?
-           AND game_setup_id = ?
-           AND tamu_id IS NOT NULL
-       )`,
-    [kegiatanId, kegiatanId, gameSetupId, kegiatanId, kegiatanId, gameSetupId]
+     ${GAME_ELIGIBLE_MEMBERS_SQL}`,
+    [kegiatanId, kegiatanId, gameSetupId]
   );
 
   return rows.map((row) => ({
