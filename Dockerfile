@@ -5,7 +5,7 @@ FROM node:20-bookworm-slim AS deps
 WORKDIR /app
 
 # Puppeteer: skip bundled Chromium download — pakai system Chromium di runner
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -16,7 +16,7 @@ RUN npm ci
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -47,7 +47,7 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Puppeteer: gunakan Chromium dari sistem, bukan yang di-download npm
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV XDG_CONFIG_HOME=/tmp/.chromium
 ENV XDG_CACHE_HOME=/tmp/.chromium
