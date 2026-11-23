@@ -58,6 +58,7 @@ run_sql "$SCRIPTS_DIR/setup-auth.sql"
 
 # 3. Kegiatan dan presensi
 run_sql "$SCRIPTS_DIR/setup-kegiatan.sql"
+run_sql "$SCRIPTS_DIR/migrate-kegiatan-petugas.sql"
 
 # 4. Presensi tamu
 run_sql "$SCRIPTS_DIR/migrate-presensi-tamu.sql"

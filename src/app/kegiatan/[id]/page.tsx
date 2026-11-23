@@ -1,7 +1,9 @@
 "use client";
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import PetugasCard from "@/components/kegiatan/PetugasCard";
 import AppLayout from "@/components/layout/AppLayout";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
@@ -111,6 +113,9 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
   const [hadirkanLoading, setHadirkanLoading] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<{ src: string; nama: string } | null>(null);
   const [totalAnggota, setTotalAnggota] = useState<number | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [revisiPetugas, setRevisiPetugas] = useState(0);
+  const [revisiPresensi, setRevisiPresensi] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState<Set<PresensiSelectionKey>>(new Set());
   const [anggotaPages, setAnggotaPages] = useState<Record<StatusKeanggotaan, number>>(INITIAL_ANGGOTA_PAGES);
   const [tamuPage, setTamuPage] = useState(1);
@@ -156,6 +161,10 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
       .then((r) => r.json())
       .then((data: UnitKerjaOption[]) => setUnitOptions(Array.isArray(data) ? data : []))
       .catch(() => setUnitOptions([]));
+    fetch("/api/auth/me")
+      .then((res) => res.ok ? res.json() : null)
+      .then((json) => setIsAdmin(json?.user?.role === "admin"))
+      .catch(() => setIsAdmin(false));
   }, []);
 
   const fetchKegiatan = useCallback(async () => {
@@ -209,17 +218,21 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
     fetchPresensi();
   }, [fetchPresensi]);
 
-  // Real-time presensi/tamu updates via Server-Sent Events
+  // Real-time presensi, tamu, and petugas updates via Server-Sent Events
   useEffect(() => {
     const es = new EventSource(`/api/kegiatan/${id}/presensi/stream`);
 
-    es.onopen = () => setSseConnected(true);
+    es.onopen = () => {
+      setSseConnected(true);
+      setRevisiPresensi((prev) => prev + 1);
+    };
 
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
 
         if (data.type === "presensi" && Array.isArray(data.rows)) {
+          setRevisiPresensi((prev) => prev + 1);
           const incoming: PresensiItem[] = (data.rows as PresensiItem[]).slice().reverse();
           // Deduplicate: skip rows already in state from a concurrent fetchPresensi() call
           const trulyNew = incoming.filter((r) => !seenPresensiIdsRef.current.has(r.id));
@@ -254,7 +267,12 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
           );
         }
 
+        if (data.type === "petugas") {
+          setRevisiPetugas((prev) => prev + 1);
+        }
+
         if (data.type === "deleted" && Array.isArray(data.ids)) {
+          setRevisiPresensi((prev) => prev + 1);
           const deletedSet = new Set<number>(data.ids as number[]);
           // Remove deleted IDs from ref so they can be re-added if re-inserted later
           (data.ids as number[]).forEach((rid) => seenPresensiIdsRef.current.delete(rid));
@@ -596,32 +614,38 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
           )}
         </div>
 
-        <div className="grid items-start gap-5 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-6">
-          <Card className="min-w-0 p-5 sm:p-6" id="qr">
+        <div className="grid gap-5 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-6">
+          <Card className="flex min-w-0 flex-col p-5 sm:p-6" id="qr">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-label-md text-label-md text-primary uppercase tracking-wider">QR Presensi</h3>
               <span className="font-mono text-label-sm bg-primary-fixed text-on-primary-fixed-variant px-2 py-0.5 rounded">
                 #{kegiatan.event_code}
               </span>
             </div>
-            <div className="bg-white border-2 border-primary rounded-xl p-4 flex items-center justify-center mb-4">
-              {/* QR served from API (SVG) */}
-              <img
-                src={`/api/kegiatan/${kegiatan.id}/qr`}
-                alt="QR Presensi"
-                className="w-full max-w-[260px] h-auto"
-              />
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 py-2">
+              <div className="w-full max-w-72 rounded-xl border-2 border-primary bg-white p-3">
+                {/* QR served from API (SVG) */}
+                <Image
+                  src={`/api/kegiatan/${kegiatan.id}/qr`}
+                  alt="QR Presensi"
+                  width={260}
+                  height={260}
+                  loading="eager"
+                  unoptimized
+                  className="h-auto w-full"
+                />
+              </div>
+              <p className="max-w-xs text-center text-body-sm text-on-surface-variant">
+                Pindai QR untuk membuka presensi kegiatan.
+              </p>
             </div>
-            <p className="text-body-sm text-on-surface-variant text-center mb-4">
-              Anggota memindai QR ini lalu memasukkan NIP atau nama suami untuk mencatat kehadiran.
-            </p>
             {origin && (
-              <div className="p-3 bg-surface-container-low border border-outline-variant rounded-lg mb-3 break-all">
+              <div className="mt-3 rounded-lg border border-outline-variant bg-surface-container-low p-3 break-all">
                 <p className="text-[11px] text-on-surface-variant uppercase tracking-wider mb-1">Link Presensi</p>
                 <code className="text-body-sm text-primary">{origin}/presensi/{kegiatan.event_code}</code>
               </div>
             )}
-            <div className="flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               <button
                 onClick={printQr}
                 className="flex min-w-max flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-2 py-2.5 font-label-md text-on-primary transition-colors hover:bg-primary-container"
@@ -650,13 +674,13 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
             </div>
           </Card>
 
-          <div className="flex min-w-0 flex-col gap-5">
+          <div className="flex min-w-0 flex-col gap-5 lg:gap-6">
             <Card className="min-w-0 p-5 sm:p-6">
               <h3 className="mb-5 flex items-center gap-2 text-body-lg font-semibold text-on-surface">
                 <span aria-hidden="true" className="material-symbols-outlined size-5 shrink-0 overflow-hidden text-[20px] text-secondary">info</span>
                 Informasi Acara
               </h3>
-              <div className="grid gap-4 text-body-sm lg:grid-cols-2">
+              <div className="grid gap-4 text-body-sm sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
                 <InfoRow icon="calendar_today" label="Tanggal" value={formatTanggal(kegiatan.tanggal)} />
                 <InfoRow
                   icon="schedule"
@@ -691,21 +715,21 @@ export default function KegiatanDetailPage({ params }: { params: Promise<{ id: s
                   </div>
                 )}
               </div>
+              {isAdmin && (
+                <div className="mt-5 border-t border-outline-variant pt-4">
+                  <button
+                    type="button"
+                    onClick={() => { resetManualAnggota(); setAddModal(true); setAddTab("anggota"); }}
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 font-label-md text-on-primary transition-colors hover:bg-primary-container sm:w-auto"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[18px]">person_add</span>
+                    Tambah Kehadiran
+                  </button>
+                </div>
+              )}
             </Card>
 
-            <Card className="min-w-0 p-5 sm:p-6">
-              <h3 className="mb-3 flex items-center gap-2 text-body-lg font-semibold text-on-surface">
-                <span aria-hidden="true" className="material-symbols-outlined size-5 shrink-0 overflow-hidden text-[20px] text-secondary">person_add</span>
-                Tambah Kehadiran
-              </h3>
-              <button
-                onClick={() => { resetManualAnggota(); setAddModal(true); setAddTab("anggota"); }}
-                className="w-full py-2.5 bg-primary text-on-primary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-primary-container transition-colors"
-              >
-                <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[18px]">add</span>
-                Tambah Anggota / Tamu
-              </button>
-            </Card>
+            <PetugasCard key={id} kegiatanId={id} revisi={revisiPetugas} revisiPresensi={revisiPresensi} isAdmin={isAdmin} />
           </div>
         </div>
 

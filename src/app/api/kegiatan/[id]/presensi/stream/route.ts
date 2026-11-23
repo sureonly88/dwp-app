@@ -7,12 +7,13 @@ import { ensureAnggotaSchema } from "@/lib/anggota";
  * GET /api/kegiatan/[id]/presensi/stream
  *
  * Server-Sent Events endpoint. Polls the DB every 2 seconds and pushes
- * incremental presensi / tamu updates to the connected client.
+ * presensi, tamu, and petugas updates to the connected client.
  *
  * Events emitted:
  *   data: {"type":"presensi","rows":[...]}   – new anggota rows (since last seen id)
  *   data: {"type":"tamu","rows":[...]}        – full tamu list when tamu count changes
  *   data: {"type":"deleted","ids":[...]}      – ids removed since last snapshot
+ *   data: {"type":"petugas"}                  – petugas list needs to be refreshed
  *   : heartbeat                               – SSE comment to keep the connection alive
  */
 export async function GET(
@@ -26,6 +27,7 @@ export async function GET(
   // Snapshot the current state before opening the stream
   let lastPresensiId = 0;
   let lastTamuCount = 0;
+  let lastPetugas: string | undefined;
   const knownPresensiIds: Set<number> = new Set();
 
   try {
@@ -120,6 +122,16 @@ export async function GET(
               [id]
             );
             sendJson({ type: "tamu", rows: tamuRows });
+          }
+
+          const [petugasRows] = await pool.execute<RowDataPacket[]>(
+            "SELECT anggota_id FROM kegiatan_petugas WHERE kegiatan_id = ? ORDER BY anggota_id",
+            [id]
+          );
+          const currentPetugas = petugasRows.map((row) => row.anggota_id).join(",");
+          if (currentPetugas !== lastPetugas) {
+            lastPetugas = currentPetugas;
+            sendJson({ type: "petugas" });
           }
 
           // Heartbeat comment keeps connection alive through proxies

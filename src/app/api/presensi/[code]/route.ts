@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
 import { buildEffectiveStatusSql } from "@/lib/anggota";
+import { simpanPetugasKegiatan } from "@/lib/kegiatan-petugas";
 import { normalizeNoHp } from "@/lib/no-hp";
 import { isUnitKerjaTerdaftar, normalizeUnitKerja } from "@/lib/unit-kerja";
 
@@ -27,13 +28,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cod
   }
 }
 
-// POST /api/presensi/[code]   body: { anggota_id?, nip?, no_hp?, unit_kerja?, foto? (data URL) }
+// POST /api/presensi/[code]   body: { anggota_id?, nip?, no_hp?, unit_kerja?, foto?, sebagai_petugas? }
 export async function POST(req: NextRequest, { params }: { params: Promise<{ code: string }> }) {
   let conn: PoolConnection | undefined;
   try {
     const { code } = await params;
     const body = await req.json();
     const anggotaId: number | null = body.anggota_id ? Number(body.anggota_id) : null;
+    const sebagaiPetugas = body.sebagai_petugas === true;
     const nip: string = (body.nip ?? "").toString().trim();
     const normalizedNoHp = normalizeNoHp(body.no_hp);
     const normalizedUnitKerja = normalizeUnitKerja(body.unit_kerja);
@@ -101,6 +103,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
         `INSERT INTO presensi (kegiatan_id, anggota_id, metode, foto) VALUES (?, ?, 'QR', ?)`,
         [kegiatan.id, anggota.id, foto]
       );
+
+      if (sebagaiPetugas) {
+        await simpanPetugasKegiatan(kegiatan.id, anggota.id, conn);
+      }
 
       const updateFields: string[] = [];
       const updateParams: string[] = [];

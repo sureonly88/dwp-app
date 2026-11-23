@@ -132,7 +132,7 @@ export default function DoorprizePage() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [displayNames, setDisplayNames] = useState<string[]>([]);
   const [lastWinners, setLastWinners] = useState<DrawWinner[]>([]);
-  const [rollNames, setRollNames] = useState<string[]>([]);
+  const rollNamesRef = useRef<string[]>([]);
   const rollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const rollIdxRef = useRef(0);
   const slowingRef = useRef(false);
@@ -165,7 +165,7 @@ export default function DoorprizePage() {
     setKegiatanInfo(null);
     setHadirCount(null);
     setEligibleCount(null);
-    setRollNames([]);
+    rollNamesRef.current = [];
     setUndiError(null);
     setLastWinners([]);
     setDisplayName(null);
@@ -223,17 +223,25 @@ export default function DoorprizePage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       const nextWinners: Winner[] = json.winners ?? [];
+      const nextSetup: DoorprizeSetup | null = json.setup
+        ? { ...json.setup, jumlah_per_undi: Number(json.setup.jumlah_per_undi ?? 10) }
+        : null;
       setKegiatanInfo(json.kegiatan);
-      setSetup(json.setup ? { ...json.setup, jumlah_per_undi: Number(json.setup.jumlah_per_undi ?? 10) } : null);
+      setSetup(nextSetup);
       setWinners(nextWinners);
       setSelectedWinnerIds((current) => {
         const availableWinnerIds = new Set(nextWinners.map((winner) => winner.id));
         return new Set([...current].filter((winnerId) => availableWinnerIds.has(winnerId)));
       });
       setHadirCount(json.hadir_count ?? null);
-      setEligibleCount(json.eligible_count ?? null);
-      setRollNames((json.roll_names ?? []).filter((nama: string) => typeof nama === "string" && nama.trim().length > 0));
+      const nextEligibleCount: number = json.eligible_count ?? 0;
+      const rollNames: string[] = (json.roll_names ?? []).filter((nama: unknown) => typeof nama === "string" && nama.trim().length > 0);
+      setEligibleCount(nextEligibleCount);
       setUndiError(null);
+      return {
+        canDraw: !!nextSetup && nextWinners.length < nextSetup.jumlah_hadiah && nextEligibleCount > 0,
+        rollNames,
+      };
     } catch {
       showToast("Gagal memuat doorprize", "error");
     } finally {
@@ -462,29 +470,22 @@ export default function DoorprizePage() {
   };
 
   const handleStart = async () => {
-    if (spinState !== "idle") return;
-    if (isSlotFull) {
-      setUndiError("Semua jatah hadiah untuk kegiatan ini sudah terpenuhi.");
-      return;
-    }
-    if (eligibleCount === 0) {
-      setUndiError(hadirCount === 0
-        ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
-        : "Semua peserta yang hadir sudah mendapat doorprize di kegiatan ini.");
-      return;
-    }
-    if (undiError) return;
+    if (spinState !== "idle" || loading || !selectedId || undiError) return;
+    primeAudioCtx();
+    const draw = await loadDetail(selectedId);
+    if (!draw?.canDraw || !undianOpenRef.current || selectedIdRef.current !== selectedId) return;
+
+    const { rollNames } = draw;
     if (rollNames.length === 0) {
       setUndiError("Data nama peserta hadir belum tersedia untuk animasi pengundian.");
       return;
     }
-    setUndiError(null);
-    primeAudioCtx();
+    rollNamesRef.current = rollNames;
+    rollIdxRef.current = 0;
     setSpinState("running");
-    setDisplayName(rollNames[rollIdxRef.current] ?? null);
+    setDisplayName(rollNames[0]);
     setDisplayNames([]);
     setLastWinners([]);
-    rollIdxRef.current = 0;
     rollIntervalRef.current = setInterval(() => {
       rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
       setDisplayName(rollNames[rollIdxRef.current] ?? null);
@@ -494,6 +495,7 @@ export default function DoorprizePage() {
 
   const handleStop = async () => {
     if (spinState !== "running" || !selectedId) return;
+    const rollNames = rollNamesRef.current;
     primeAudioCtx();
     setSpinState("stopping");
 
@@ -680,7 +682,7 @@ export default function DoorprizePage() {
   const selectedWinnerCount = selectedWinnerIds.size;
   const allWinnersSelected = winners.length > 0 && selectedWinnerCount === winners.length;
   const winnersPerDraw = setup?.jumlah_per_undi ?? 10;
-  const canStart = spinState === "idle" && !!setup && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
+  const canStart = spinState === "idle" && !loading && !!setup && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
   const highlightedWinnerIds = new Set(lastWinners.map((winner) => winner.id));
 
   return (
@@ -847,14 +849,14 @@ export default function DoorprizePage() {
                 <span className="material-symbols-outlined text-[22px] mt-0.5 shrink-0">group_off</span>
                 <div>
                   <p className="font-bold text-[14px]">
-                    {hadirCount === 0 ? "Tidak ada peserta yang hadir" : "Pengundian sudah habis"}
+                    {isSlotFull ? "Pengundian sudah habis" : "Pengundian belum bisa dimulai"}
                   </p>
                   <p className="text-[12px] mt-0.5 opacity-80">
                     {isSlotFull
                       ? "Semua hadiah sudah memiliki pemenang."
                       : hadirCount === 0
                       ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
-                      : undiError ?? "Semua peserta yang hadir sudah mendapat doorprize di kegiatan ini."}
+                      : undiError ?? "Tidak ada peserta hadir yang memenuhi syarat dan masih bisa diundi."}
                   </p>
                 </div>
               </div>
@@ -1039,7 +1041,7 @@ export default function DoorprizePage() {
           </nav>
           <h2 className="font-h1 text-h1 text-primary">Doorprize Kegiatan</h2>
           <p className="text-body-lg text-on-surface-variant max-w-2xl mt-2">
-            Undi pemenang doorprize dari peserta kegiatan secara transparan dan menyenangkan.
+            Undi pemenang doorprize dari daftar hadir kegiatan. Petugas acara dikecualikan dari pengundian.
           </p>
         </div>
 

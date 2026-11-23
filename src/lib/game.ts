@@ -1,6 +1,7 @@
 import type { RowDataPacket } from "mysql2";
 import pool from "@/lib/db";
 import { ensureAnggotaSchema } from "@/lib/anggota";
+import { PRESENSI_NON_PETUGAS_SQL } from "@/lib/kegiatan-petugas";
 
 export type GamePesertaTipe = "anggota" | "tamu";
 
@@ -9,6 +10,7 @@ const GAME_PRESENT_MEMBERS_SQL = `
   INNER JOIN presensi pr ON pr.anggota_id = a.id
   WHERE pr.kegiatan_id = ?
     AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
+    AND ${PRESENSI_NON_PETUGAS_SQL}
 `;
 
 export const GAME_ELIGIBLE_MEMBERS_SQL = `

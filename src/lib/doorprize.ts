@@ -1,8 +1,27 @@
 import type { RowDataPacket } from "mysql2";
 import pool from "@/lib/db";
 import { ensureAnggotaSchema } from "@/lib/anggota";
+import { PRESENSI_NON_PETUGAS_SQL } from "@/lib/kegiatan-petugas";
 
 export type DoorprizePesertaTipe = "anggota" | "tamu";
+
+const DOORPRIZE_PRESENT_MEMBERS_SQL = `
+  FROM anggota a
+  INNER JOIN presensi pr ON pr.anggota_id = a.id
+  WHERE pr.kegiatan_id = ?
+    AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
+    AND ${PRESENSI_NON_PETUGAS_SQL}
+`;
+
+export const DOORPRIZE_ELIGIBLE_MEMBERS_SQL = `
+  ${DOORPRIZE_PRESENT_MEMBERS_SQL}
+    AND a.id NOT IN (
+      SELECT anggota_id
+      FROM doorprize_winners
+      WHERE kegiatan_id = ?
+        AND anggota_id IS NOT NULL
+    )
+`;
 
 let ensureDoorprizeSetupSchemaPromise: Promise<void> | null = null;
 
@@ -52,13 +71,8 @@ export async function ensureDoorprizeSetupSchema() {
 export async function listHadirAnggotaDoorprizeNames(kegiatanId: number | string): Promise<string[]> {
   await ensureAnggotaSchema();
 
-  // Ambil nama anggota yang hadir
   const [anggotaRows] = await pool.execute<RowDataPacket[]>(
-    `SELECT DISTINCT a.nama
-     FROM anggota a
-     INNER JOIN presensi pr ON pr.anggota_id = a.id
-     WHERE pr.kegiatan_id = ?
-       AND a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
+    `SELECT DISTINCT a.nama ${DOORPRIZE_PRESENT_MEMBERS_SQL}
        AND COALESCE(NULLIF(TRIM(a.nama), ''), '') <> ''
      ORDER BY a.nama ASC`,
     [kegiatanId]
@@ -97,15 +111,7 @@ export async function listEligibleDoorprizeCandidates(kegiatanId: number | strin
             a.jabatan,
             a.unit_kerja,
             NULL AS instansi
-     FROM anggota a
-     INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-     WHERE a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
-       AND a.id NOT IN (
-         SELECT anggota_id
-         FROM doorprize_winners
-         WHERE kegiatan_id = ?
-           AND anggota_id IS NOT NULL
-       )
+     ${DOORPRIZE_ELIGIBLE_MEMBERS_SQL}
 
      UNION ALL
 

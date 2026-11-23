@@ -148,7 +148,7 @@ export default function GamePage() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [displayNames, setDisplayNames] = useState<string[]>([]);
   const [lastWinners, setLastWinners] = useState<DrawWinner[]>([]);
-  const [rollNames, setRollNames] = useState<string[]>([]);
+  const rollNamesRef = useRef<string[]>([]);
   const rollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const rollIdxRef = useRef(0);
   const slowingRef = useRef(false);
@@ -184,7 +184,7 @@ export default function GamePage() {
     setKegiatanInfo(null);
     setHadirCount(null);
     setEligibleCount(null);
-    setRollNames([]);
+    rollNamesRef.current = [];
     setUndiError(null);
     setLastWinners([]);
     setDisplayName(null);
@@ -275,9 +275,15 @@ export default function GamePage() {
         return new Set([...current].filter((winnerId) => availableWinnerIds.has(winnerId)));
       });
       setHadirCount(json.hadir_count ?? null);
-      setEligibleCount(json.eligible_count ?? null);
-      setRollNames((json.roll_names ?? []).filter((nama: string) => typeof nama === "string" && nama.trim().length > 0));
+      const nextEligibleCount: number = json.eligible_count ?? 0;
+      const rollNames: string[] = (json.roll_names ?? []).filter((nama: unknown) => typeof nama === "string" && nama.trim().length > 0);
+      setEligibleCount(nextEligibleCount);
       setUndiError(null);
+      return {
+        gameId: nextSetup?.id,
+        canDraw: !!nextSetup && nextWinners.length < nextSetup.jumlah_hadiah && nextEligibleCount > 0,
+        rollNames,
+      };
     } catch {
       showToast("Gagal memuat game", "error");
     } finally {
@@ -527,27 +533,25 @@ export default function GamePage() {
   };
 
   const handleStart = async () => {
-    if (spinState !== "idle") return;
-    if (isSlotFull) {
-      setUndiError("Semua kuota peserta terpilih untuk game ini sudah terpenuhi.");
-      return;
-    }
-    if (eligibleCount === 0) {
-      setUndiError(noEligibleMessage);
-      return;
-    }
-    if (undiError) return;
+    if (spinState !== "idle" || loading || !selectedId || !selectedGameId || undiError) return;
+    primeAudioCtx();
+    const draw = await loadDetail(selectedId, selectedGameId);
+    if (
+      !draw?.canDraw || !undianOpenRef.current || selectedIdRef.current !== selectedId ||
+      selectedGameIdRef.current !== selectedGameId || draw.gameId !== selectedGameId
+    ) return;
+
+    const { rollNames } = draw;
     if (rollNames.length === 0) {
       setUndiError("Data nama peserta hadir belum tersedia untuk animasi pengundian.");
       return;
     }
-    setUndiError(null);
-    primeAudioCtx();
+    rollNamesRef.current = rollNames;
+    rollIdxRef.current = 0;
     setSpinState("running");
-    setDisplayName(rollNames[rollIdxRef.current] ?? null);
+    setDisplayName(rollNames[0]);
     setDisplayNames([]);
     setLastWinners([]);
-    rollIdxRef.current = 0;
     rollIntervalRef.current = setInterval(() => {
       rollIdxRef.current = (rollIdxRef.current + 1) % rollNames.length;
       setDisplayName(rollNames[rollIdxRef.current] ?? null);
@@ -557,6 +561,7 @@ export default function GamePage() {
 
   const handleStop = async () => {
     if (spinState !== "running" || !selectedId || !selectedGameId) return;
+    const rollNames = rollNamesRef.current;
     primeAudioCtx();
     setSpinState("stopping");
 
@@ -750,7 +755,7 @@ export default function GamePage() {
   const noEligibleMessage = hadirCount === 0
     ? "Belum ada peserta hadir yang tercatat di kegiatan ini."
     : "Tidak ada anggota hadir yang memenuhi syarat dan masih bisa diundi.";
-  const canStart = spinState === "idle" && !!setup && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
+  const canStart = spinState === "idle" && !loading && !!setup && !isSlotFull && hadirCount !== 0 && eligibleCount !== 0 && !undiError;
   const highlightedWinnerIds = new Set(lastWinners.map((winner) => winner.id));
 
   return (
@@ -1118,7 +1123,7 @@ export default function GamePage() {
           </nav>
           <h2 className="font-h1 text-h1 text-primary">Game Kegiatan</h2>
           <p className="text-body-lg text-on-surface-variant max-w-2xl mt-2">
-            Undi peserta terpilih game dari peserta kegiatan secara transparan dan menyenangkan.
+            Pilih peserta game dari daftar hadir kegiatan. Petugas acara dikecualikan dari pengundian.
           </p>
         </div>
 

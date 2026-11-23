@@ -139,6 +139,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
   const [anggotaNoHp, setAnggotaNoHp] = useState("");
   const [unitOptions, setUnitOptions] = useState<UnitKerjaOption[]>([]);
   const [anggotaUnitKerja, setAnggotaUnitKerja] = useState("");
+  const [sebagaiPetugas, setSebagaiPetugas] = useState(false);
 
   // Selfie
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -349,6 +350,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
     setSelected(a);
     setAnggotaNoHp(a.no_hp ?? "");
     setAnggotaUnitKerja(a.unit_kerja);
+    setSebagaiPetugas(false);
     setStep("selfie");
   };
 
@@ -380,6 +382,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
             foto: photoData,
             no_hp: anggotaNoHp.trim() || undefined,
             unit_kerja: anggotaUnitKerja.trim() || selected.unit_kerja,
+            sebagai_petugas: sebagaiPetugas,
           }),
         });
         const json = await res.json();
@@ -414,6 +417,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
     setSelected(null);
     setAnggotaNoHp("");
     setAnggotaUnitKerja("");
+    setSebagaiPetugas(false);
     setPhotoData(null);
     setResult(null);
     setStep("search");
@@ -722,6 +726,30 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
 
             {presType === "anggota" && selected && (
               <div className="mb-3 flex flex-col gap-3">
+                <fieldset>
+                  <legend className="mb-2 text-label-sm font-semibold text-on-surface">Peran dalam kegiatan</legend>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: "Bukan petugas", value: false },
+                      { label: "Petugas acara", value: true },
+                    ].map(({ label, value }) => (
+                      <label
+                        key={label}
+                        className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-outline-variant px-3 py-2 text-body-sm text-on-surface hover:bg-surface-container-low has-checked:border-primary has-checked:bg-primary-fixed/30"
+                      >
+                        <input
+                          type="radio"
+                          name="peran-kegiatan"
+                          value={value ? "petugas" : "peserta"}
+                          checked={sebagaiPetugas === value}
+                          onChange={() => setSebagaiPetugas(value)}
+                          className="size-4 shrink-0 accent-primary"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 <div>
                   <label className="text-label-sm text-on-surface-variant mb-1 block">
                     Unit kerja anggota
@@ -790,7 +818,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
             </div>
 
             {!photoData ? (
-              <div className="flex gap-2">
+              <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2">
                 <button
                   onClick={() => {
                     setPhotoData(null);
@@ -798,35 +826,36 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                     if (presType === "anggota") setSelected(null);
                     setStep("search");
                   }}
-                  className="px-4 py-3 rounded-xl border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors text-label-md"
+                  aria-label="Kembali"
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-outline-variant px-3 text-on-surface-variant transition-colors hover:bg-surface-container"
                 >
-                  <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+                  <span aria-hidden="true" className="material-symbols-outlined size-5 overflow-hidden text-[20px]">arrow_back</span>
                 </button>
                 <button
                   onClick={capturePhoto}
                   disabled={!!cameraErr}
-                  className="flex-1 py-3 bg-primary text-on-primary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-primary-container active:scale-[0.98] transition-all disabled:opacity-50"
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-2 py-2.5 font-label-md text-on-primary transition-all hover:bg-primary-container active:scale-[0.98] disabled:opacity-50"
                 >
-                  <span className="material-symbols-outlined text-[22px]">photo_camera</span>
+                  <span aria-hidden="true" className="material-symbols-outlined size-5 shrink-0 overflow-hidden text-[20px]">photo_camera</span>
                   Ambil Foto
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  title="Lewati foto"
+                  className="min-h-11 rounded-xl border border-outline-variant px-3 text-label-sm text-on-surface-variant transition-colors hover:bg-surface-container disabled:opacity-50"
+                >
+                  Lewati
                 </button>
                 {cameraErr && (
                   <button
                     onClick={startCamera}
                     type="button"
-                    className="px-4 py-3 rounded-xl border border-secondary/40 text-secondary hover:bg-secondary-container/30 transition-colors text-label-sm"
+                    className="col-span-full min-h-11 rounded-xl border border-secondary/40 px-3 text-label-sm text-secondary transition-colors hover:bg-secondary-container/30"
                   >
                     Coba Lagi Kamera
                   </button>
                 )}
-                <button
-                  onClick={handleSubmit}
-                  disabled={submitting}
-                  title="Lewati foto"
-                  className="px-4 py-3 rounded-xl border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors text-label-sm"
-                >
-                  Lewati
-                </button>
               </div>
             ) : (
               <div className="flex gap-2">
@@ -835,7 +864,7 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                   disabled={submitting}
                   className="flex-1 py-3 rounded-xl border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors text-label-md flex items-center justify-center gap-2"
                 >
-                  <span className="material-symbols-outlined text-[20px]">refresh</span>
+                  <span aria-hidden="true" className="material-symbols-outlined size-5 shrink-0 overflow-hidden text-[20px]">refresh</span>
                   Ulang
                 </button>
                 <button
@@ -844,9 +873,9 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                   className="flex-[2] py-3 bg-primary text-on-primary rounded-xl font-label-md flex items-center justify-center gap-2 hover:bg-primary-container active:scale-[0.98] transition-all disabled:opacity-50"
                 >
                   {submitting ? (
-                    <><span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span> Mengirim...</>
+                    <><span aria-hidden="true" className="material-symbols-outlined size-5 shrink-0 animate-spin overflow-hidden text-[20px]">progress_activity</span> Mengirim...</>
                   ) : (
-                    <><span className="material-symbols-outlined text-[20px]">how_to_reg</span> Simpan Kehadiran</>
+                    <><span aria-hidden="true" className="material-symbols-outlined size-5 shrink-0 overflow-hidden text-[20px]">how_to_reg</span> Simpan Kehadiran</>
                   )}
                 </button>
               </div>
@@ -875,6 +904,9 @@ export default function PresensiPublicPage({ params }: { params: Promise<{ code:
                   )}
                   {result.isTamu && (
                     <p className="text-[11px] text-secondary font-semibold mt-0.5">Tamu (Non-Anggota)</p>
+                  )}
+                  {!result.isTamu && sebagaiPetugas && (
+                    <p className="mt-1 text-label-sm font-semibold text-tertiary">Petugas acara</p>
                   )}
                 </div>
               </div>

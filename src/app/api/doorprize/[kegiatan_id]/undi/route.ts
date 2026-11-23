@@ -4,7 +4,7 @@ import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
 import { requireAdmin } from "@/lib/admin-auth";
 import { ensureAnggotaSchema } from "@/lib/anggota";
-import { ensureDoorprizeSetupSchema } from "@/lib/doorprize";
+import { DOORPRIZE_ELIGIBLE_MEMBERS_SQL, ensureDoorprizeSetupSchema } from "@/lib/doorprize";
 
 interface DoorprizeCandidateRow extends RowDataPacket {
   peserta_tipe: "anggota" | "tamu";
@@ -78,15 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
                  WHEN pr.foto IS NOT NULL AND TRIM(pr.foto) <> '' THEN pr.foto
                  ELSE NULL
                END AS foto
-       FROM anggota a
-       INNER JOIN presensi pr ON pr.anggota_id = a.id AND pr.kegiatan_id = ?
-       WHERE a.status_keanggotaan IN ('Istri Karyawan', 'Karyawati')
-         AND a.id NOT IN (
-           SELECT anggota_id
-           FROM doorprize_winners
-           WHERE kegiatan_id = ?
-             AND anggota_id IS NOT NULL
-         )
+       ${DOORPRIZE_ELIGIBLE_MEMBERS_SQL}
 
        UNION ALL
 
@@ -115,7 +107,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ keg
 
     if (candidateRows.length === 0) {
       await conn.rollback();
-      return NextResponse.json({ error: "Pengundian sudah habis. Tidak ada peserta yang hadir dan belum menang doorprize." }, { status: 400 });
+      return NextResponse.json({ error: "Tidak ada peserta hadir yang memenuhi syarat dan masih bisa diundi." }, { status: 400 });
     }
 
     const remainingSlots = jumlahHadiah - currentCount;
